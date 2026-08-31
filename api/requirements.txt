@@ -1,0 +1,14 @@
+# ClaimAssist API v3 — pinned dependencies
+fastapi==0.115.6
+uvicorn==0.32.1
+httpx==0.28.1
+pydantic==2.10.3
+# NEW in v3: the embedded vector store. Pinned to a 0.5.x release; NOTE the
+# first embed/query downloads the default ONNX embedding model (~80 MB) to
+# ~/.cache/chroma/onnx_models — the compose file persists that cache.
+chromadb==1.5.9
+# NEW in v3: multipart parsing for the /intake image upload
+python-multipart==0.0.20
+# openai remains the drop-in SDK alternative to the raw httpx calls
+openai==1.57.4
+prometheus-client==0.21.1
