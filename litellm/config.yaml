@@ -53,7 +53,7 @@ router_settings:
   # If qwen-local fails (container down, timeout), route the SAME request to
   # openrouter-mini — provided OPENROUTER_API_KEY is set in .env.
   # Without a cloud key, LiteLLM retries and then returns a clean error.
-  fallbacks: [{"qwen-local": ["gemma-4-26b-a4b-it"]}]
+  fallbacks: [{"qwen-local": ["openrouter-mini"]}]
   num_retries: 2
 
 # ---- Cost-based routing (discussion, Step 5) --------------------------------
