@@ -57,7 +57,7 @@ LLM_MODEL = os.getenv("LLM_MODEL", "qwen-local")
 API_KEY = os.getenv("API_KEY", "local-dev-key")
 PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v1")
 CHROMA_DIR = os.environ.get("CHROMA_DIR", "rag/chroma")
-RAG_COLLECTION = "eligibility_2"
+RAG_COLLECTION = "eligibility"
 AUDIT_PATH = os.environ.get("AUDIT_PATH", "/app/logs/audit.jsonl")
 TOP_K = 5  # clauses retrieved per question
 
@@ -310,6 +310,9 @@ class IntakeResult(BaseModel):
 #     ]
 
 #     return messages, []
+
+conversation_store = {}
+
 def get_history(session_id: str):
     return conversation_store.get(session_id, [])
 

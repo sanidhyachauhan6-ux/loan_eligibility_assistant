@@ -11,7 +11,11 @@
 # The Streamlit UI runs on the host (streamlit run ui/chat_app.py, :8501).
 services:
   model:
-    build: ./model_server
+    build:
+      context: ./model_server
+      args:
+        HOST_UID: ${HOST_UID:-1000}
+        HOST_GID: ${HOST_GID:-1000}
     image: llm-server:openai
     container_name: loanassist-model
     ports:
@@ -45,7 +49,11 @@ services:
       start_period: 30s
 
   api:
-    build: ./api
+    build:
+      context: ./api
+      args:
+        HOST_UID: ${HOST_UID:-1000}
+        HOST_GID: ${HOST_GID:-1000}
     image: loanassist-api:v3
     container_name: loanassist-api
     ports:

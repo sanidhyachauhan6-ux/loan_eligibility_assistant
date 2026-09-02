@@ -5,7 +5,11 @@
 # the data directory are runtime volume mounts, never baked into the image.
 FROM python:3.11-slim
 
-RUN useradd -m appuser
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+
+RUN groupadd --gid ${HOST_GID} appuser \
+    && useradd --uid ${HOST_UID} --gid ${HOST_GID} --create-home appuser
 
 WORKDIR /app
 
@@ -14,6 +18,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 RUN mkdir -p /home/appuser/.cache/chroma \
     && chown -R appuser /home/appuser/.cache/chroma
+
+RUN mkdir -p /app/logs \
+    && chown -R appuser /app/logs
 
 COPY app.py guardrails.py redact.py ./
 

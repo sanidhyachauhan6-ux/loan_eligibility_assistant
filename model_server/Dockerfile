@@ -6,8 +6,11 @@
 #    not full python (bloated), not a CUDA image (we serve on CPU here).
 FROM python:3.11-slim
 
-# 2. Never run as root in production images (supply-chain hygiene)
-RUN useradd -m appuser
+# 2. Match the host user for mounted-volume write access.
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+RUN groupadd --gid ${HOST_GID} appuser \
+  && useradd --uid ${HOST_UID} --gid ${HOST_GID} --create-home appuser
 
 WORKDIR /app
 
