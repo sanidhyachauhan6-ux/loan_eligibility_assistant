@@ -4,6 +4,7 @@ import uuid
 import requests
 import streamlit as st
 from dotenv import load_dotenv
+from session_utils import get_session_id
 
 
 st.set_page_config(
@@ -59,6 +60,8 @@ with st.sidebar:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+if "session_id" not in st.session_state:
+    st.session_state.session_id = get_session_id(st.session_state)
 
 # ---------------------------------------------------------------------------
 # API call
@@ -67,6 +70,7 @@ if "messages" not in st.session_state:
 def ask_api(prompt):
     try:
         idempotency_key = str(uuid.uuid4())
+        session_id = get_session_id(st.session_state)
 
         response = requests.post(
             f"{API_URL}/ask",
@@ -74,6 +78,7 @@ def ask_api(prompt):
                 "Accept": "application/json",
                 "X-API-Key": API_KEY,
                 "Idempotency-Key": idempotency_key,
+                "X-Session-Id": session_id,
             },
             json={
                 "question": prompt,

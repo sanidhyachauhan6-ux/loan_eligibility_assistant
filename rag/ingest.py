@@ -31,48 +31,136 @@ COLLECTION = "eligibility"
 # line: a letter prefix (M=motor, H=health, P=process), a dotted number, a
 # short title, then a colon. Everything until the next clause heading or
 # section heading ("## Section ...") belongs to that clause.
+import re
+
+
+# Matches:
+# ## 1. Home Loan
+# ## 2. Personal Loan
+# ## 7. General Applicant Information
+# and also the repository’s bold-wrapped style:
+# **## 1. Home Loan**
+# **### 1.1 Age and Working Years**
 SECTION_RE = re.compile(
-    r"^##\s+(?P<section>\d+)\.\s+(?P<title>.+?)\s*$",
-    re.MULTILINE
+    r"^\*{0,4}##\s+(?P<section>\d+)\.\s+(?P<title>.+?)\*{0,4}\s*$",
+    re.MULTILINE,
 )
-    
+
+SUBSECTION_RE = re.compile(
+    r"^\*{0,4}###\s+(?P<section>\d+\.\d+)\s+(?P<title>.+?)\*{0,4}\s*$",
+    re.MULTILINE,
+)
+
+RULE_ID_RE = re.compile(
+    r"\*{0,4}Rule ID:\*{0,4}\s*:?\s*\*{0,4}"
+    r"(?P<id>[A-Z]+(?:-[A-Z0-9]+)*-\d+)",
+    re.IGNORECASE,
+)
+
+
 def split_by_clause(text: str, doc_name: str) -> list[dict]:
-    """One chunk per numbered clause. Fixed-size windows would cut clauses in
-    half and merge neighbours — and a citation like [M-2.3] would then map to
-    'somewhere in chunk 7' instead of one precise, quotable clause."""
     chunks = []
-    matches = list(SECTION_RE.finditer(text))
 
-    for i, m in enumerate(matches):
-        start = m.start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+    section_matches = list(SECTION_RE.finditer(text))
 
-        section_text = text[start:end].strip()
+    for section_index, section_match in enumerate(section_matches):
 
-        rule_match = re.search(
-            r"\*\*Rule ID:\*\*\s*(?P<id>[A-Z]+-\d+)",
-            section_text
+        section_start = section_match.start()
+
+        section_end = (
+            section_matches[section_index + 1].start()
+            if section_index + 1 < len(section_matches)
+            else len(text)
         )
 
-        chunks.append({
-            "doc": doc_name,
-            "section": m.group("section"),
-            "title": m.group("title").strip(),
-            "rule_id": rule_match.group("id") if rule_match else None,
-            "text": " ".join(section_text.split())
-        })
-    print(chunks)
-    return chunks
+        section_text = text[section_start:section_end].strip()
 
+        section = section_match.group("section")
+        title = section_match.group("title").strip()
+
+        subsection_matches = list(
+            SUBSECTION_RE.finditer(section_text)
+        )
+
+        # ---------------------------------------------------------
+        # Section contains ### subsections
+        # ---------------------------------------------------------
+
+        if subsection_matches:
+
+            for sub_index, sub_match in enumerate(subsection_matches):
+
+                sub_start = sub_match.start()
+
+                sub_end = (
+                    subsection_matches[sub_index + 1].start()
+                    if sub_index + 1 < len(subsection_matches)
+                    else len(section_text)
+                )
+
+                clause_text = section_text[sub_start:sub_end].strip()
+
+                rule_match = RULE_ID_RE.search(clause_text)
+
+                chunks.append({
+                    "doc": doc_name,
+                    "section": section,
+                    "title": title,
+                    "subsection": sub_match.group("section"),
+                    "subsection_title": sub_match.group("title").strip(),
+                    "rule_id": (
+                        rule_match.group("id").upper()
+                        if rule_match
+                        else None
+                    ),
+                    "text": " ".join(clause_text.split()),
+                })
+
+        # ---------------------------------------------------------
+        # Section has no subsections
+        # ---------------------------------------------------------
+
+        else:
+
+            rule_match = RULE_ID_RE.search(section_text)
+
+            chunks.append({
+                "doc": doc_name,
+                "section": section,
+                "title": title,
+                "subsection": None,
+                "subsection_title": None,
+                "rule_id": (
+                    rule_match.group("id").upper()
+                    if rule_match
+                    else None
+                ),
+                "text": " ".join(section_text.split()),
+            })
+
+    return chunks
 
 def main() -> None:
     policy_files = sorted(POLICIES_DIR.glob("*.md"))
+
     if not policy_files:
         sys.exit(f"No policy documents found in {POLICIES_DIR}")
 
     all_chunks: list[dict] = []
+
     for path in policy_files:
-        chunks = split_by_clause(path.read_text(encoding="utf-8"), path.name)
+        text = path.read_text(encoding="utf-8")
+
+        # Normalize the policy file’s bold-wrapped headers so the parser can
+        # recognize the same sections and subsections the markdown uses
+        # throughout the repository.
+        text = re.sub(r"(?m)^\*{1,4}##\s+(?P<section>\d+)\.\s+(?P<title>.+?)\*{1,4}\s*$",
+                      r"## \g<section>. \g<title>", text)
+        text = re.sub(r"(?m)^\*{1,4}###\s+(?P<section>\d+\.\d+)\s+(?P<title>.+?)\*{1,4}\s*$",
+                      r"### \g<section> \g<title>", text)
+
+        chunks = split_by_clause(text, path.name)
+
         print(f"{path.name}: {len(chunks)} clauses")
         all_chunks.extend(chunks)
 
@@ -85,24 +173,92 @@ def main() -> None:
     # previous version of a document are a silent correctness bug in RAG.
     try:
         client.delete_collection(COLLECTION)
-        print(f"Deleted existing collection '{COLLECTION}' (idempotent rebuild)")
+        print(
+            f"Deleted existing collection '{COLLECTION}' "
+            "(idempotent rebuild)"
+        )
     except Exception:
-        pass  # first run: nothing to delete
+        pass
 
-    # No embedding_function argument => chromadb's default embedding function
-    # (ONNX all-MiniLM-L6-v2). First run downloads ~80 MB to ~/.cache/chroma.
-    collection = client.create_collection(COLLECTION, metadata={"hnsw:space": "l2"})
-
-    collection.add(
-        ids=[c["section"] for c in all_chunks],                 # clause id IS the chunk id
-        documents=[c["text"] for c in all_chunks],
-        metadatas=[{"doc": c["doc"], "section": c["section"], **({"rule_id": c["rule_id"]} if c["rule_id"] is not None else {})} for c in all_chunks],
+    # No embedding_function argument => Chroma's default embedding function
+    # (ONNX all-MiniLM-L6-v2).
+    collection = client.create_collection(
+        COLLECTION,
+        metadata={"hnsw:space": "l2"}
     )
 
-    print(f"\nStored {collection.count()} clause chunks in {CHROMA_DIR}/")
-    print("Sample chunks (id · doc · first 90 chars):")
-    for c in all_chunks[:5]:
-        print(f"  {c['doc']:<20} · {c['section']:>6} · {str(c['rule_id']):<6} · {c['text'][:90]}...")
+    # ---------------------------------------------------------
+    # Build unique IDs and rich metadata for each chunk.
+    #
+    # Example:
+    #   HOME-AGE-001
+    #   PERSONAL-CREDIT-001
+    #   AUTO-INCOME-001
+    #
+    # Rule ID is preferred because it is explicitly defined in
+    # the policy and gives us a stable citation/reference key.
+    # ---------------------------------------------------------
+    ids = []
+
+    for i, c in enumerate(all_chunks):
+        if c["rule_id"]:
+            chunk_id = c["rule_id"]
+        else:
+            # Fallback for sections without a Rule ID.
+            chunk_id = (
+                f"{c['doc']}:"
+                f"{c['section']}:"
+                f"{c.get('subsection', 'root')}:"
+                f"{i}"
+            )
+
+        # Ensure uniqueness even if a rule ID accidentally appears
+        # more than once across policy documents.
+        if chunk_id in ids:
+            chunk_id = f"{chunk_id}-{i}"
+
+        ids.append(chunk_id)
+
+    metadatas = []
+
+    for c in all_chunks:
+        metadata = {
+            "doc": c["doc"],
+            "section": c["section"],
+            "title": c["title"],
+        }
+
+        if c.get("subsection") is not None:
+            metadata["subsection"] = c["subsection"]
+
+        if c.get("subsection_title") is not None:
+            metadata["subsection_title"] = c["subsection_title"]
+
+        if c.get("rule_id") is not None:
+            metadata["rule_id"] = c["rule_id"]
+
+        metadatas.append(metadata)
+
+    collection.add(
+        ids=ids,
+        documents=[c["text"] for c in all_chunks],
+        metadatas=metadatas,
+    )
+
+    print(
+        f"\nStored {collection.count()} clause chunks "
+        f"in {CHROMA_DIR}/"
+    )
+
+    print("Sample chunks (id · loan type · criterion · rule id):")
+
+    for chunk_id, c in zip(ids[:5], all_chunks[:5]):
+        print(
+            f"  {chunk_id:<24} · "
+            f"{c['title']:<20} · "
+            f"{c.get('subsection_title', 'General'):<35} · "
+            f"{str(c['rule_id']):<24}"
+        )
 
 
 if __name__ == "__main__":

@@ -124,20 +124,33 @@ def get_collection():
 
 
 def retrieve_clauses(question: str) -> list[dict]:
-    """Top-K nearest clause chunks for the question.
+    """Retrieve the top-K nearest policy clause chunks.
 
-    Returns [{clause_id, doc, text, distance}] ordered best-first. chroma's
-    default space here is L2 over normalised MiniLM embeddings: SMALLER
-    distance = closer match. The best (smallest) distance drives `confidence`.
+    Returns chunks containing loan type, criterion, rule ID,
+    policy text, and retrieval distance.
     """
-    res = get_collection().query(query_texts=[question], n_results=TOP_K)
+
+    res = get_collection().query(
+        query_texts=[question],
+        n_results=TOP_K,
+    )
+
     out = []
+
     for i in range(len(res["ids"][0])):
+        metadata = res["metadatas"][0][i]
+
         out.append(
             {
-                "doc": res["metadatas"][0][i]["doc"],
-                "section": res["metadatas"][0][i]["section"],
-                "rule_id": res["metadatas"][0][i].get("rule_id", "-"),
+                "clause_id": res["ids"][0][i],
+                "doc": metadata["doc"],
+                "section": metadata.get("section", "-"),
+                "title": metadata.get("title", "-"),
+                "subsection": metadata.get("subsection", "-"),
+                "subsection_title": metadata.get(
+                    "subsection_title", "-"
+                ),
+                "rule_id": metadata.get("rule_id", "-"),
                 "text": res["documents"][0][i],
                 "distance": res["distances"][0][i],
             }
@@ -189,8 +202,15 @@ class AskRequest(BaseModel):
     question: str
 
 class Citation(BaseModel):
+    id: Optional[str] = None
     doc: str
+    section: str = "-"
+    title: str = "-"
+    subsection: Optional[str] = None
+    subsection_title: Optional[str] = None
+    rule_id: Optional[str] = None
     text: str
+    distance: Optional[float] = None
 
 class AskResponse(BaseModel):
     """v5 contract: refusals are FIRST-CLASS fields, not HTTP errors."""
@@ -323,33 +343,54 @@ def save_message(session_id: str, role: str, content: str):
         "content": content
     })
 
-
 def build_messages(
     question: str,
     request_type: str,
-    session_id: str,
+    history: list,
 ) -> tuple[list, list]:
-    history = get_history(session_id)
 
     system = ACTIVE_PROMPT["text"]
 
     # ---------------------------------------------------------
-    # GENERAL conversation
+    # GENERAL / CONVERSATIONAL
     # ---------------------------------------------------------
+
     if request_type == "GENERAL":
 
         system_prompt = f"""
 {system}
 
-This is a LoanAssist conversational interaction.
+This is a conversational LoanAssist interaction.
 
-Do not perform an eligibility assessment unless the user explicitly asks
-for one.
+Use the conversation history to maintain continuity.
 
-Respond naturally and briefly while staying within the LoanAssist role.
+Do not restart the conversation or repeat information that the customer
+has already provided.
 
-For greetings or casual conversation, help guide the customer toward
-loan-related assistance.
+The customer's current message should be answered in the context of the
+conversation.
+
+If the customer is simply discussing a loan, choosing a loan type, asking
+how to apply, or asking what information is needed, respond naturally.
+
+Do not perform an eligibility assessment unless the customer explicitly
+asks whether they qualify, are eligible, or requests pre-qualification.
+
+If the customer asks what information is needed:
+- explain the relevant information conversationally;
+- do not dump a long checklist unless the customer asks for a complete list;
+- ask only for the next relevant information.
+
+If the customer provides personal information, acknowledge it naturally
+and continue the conversation.
+
+Avoid repetitive or mechanical phrases such as:
+"Could you please provide more details..."
+"Please share your income, employment status, and credit score..."
+unless those details are actually needed at this point.
+
+Ask one or two relevant questions at a time rather than presenting a
+large questionnaire.
 
 Return valid JSON only:
 
@@ -364,31 +405,129 @@ Do not include any other fields.
             {
                 "role": "system",
                 "content": system_prompt,
-            },
-            {
-                "role": "user",
-                "content": question,
-            },
+            }
         ]
+
+        # IMPORTANT:
+        # History comes BEFORE the current question.
         messages.extend(history)
+
+        messages.append({
+            "role": "user",
+            "content": question,
+        })
+
         return messages, []
 
     # ---------------------------------------------------------
-    # ELIGIBILITY / RAG
+    # APPLICANT INFORMATION
     # ---------------------------------------------------------
-    rag_results = retrieve_clauses(question)
+
+    if request_type == "APPLICANT_INFO":
+        system_prompt = f"""
+
+        {system}
+
+        This is a conversational LoanAssist interaction.
+
+        The customer is providing personal information that may be relevant to
+        a future loan assessment.
+
+        Do NOT perform an eligibility assessment just because the customer
+        provided personal information.
+
+        IMPORTANT CONVERSATION ORDER:
+
+        First determine the type of loan the customer is seeking.
+
+        If the customer has NOT specified a loan type yet:
+
+        Briefly acknowledge the information they provided.
+        Ask what type of loan they are looking for.
+        Do NOT ask for income, employment status, credit score, residency,
+        loan amount, or other eligibility information yet.
+
+        Example:
+
+        Customer: "My age is 45"
+        Correct response:
+        "Thanks for sharing that. What type of loan are you looking for?"
+
+        Incorrect response:
+        "Thanks for sharing your age. What is your annual income?"
+
+        Once the customer has specified the loan type:
+
+        Continue collecting only information relevant to that loan.
+        Use information already provided in the conversation.
+        Never ask for information the customer has already provided.
+        Ask one or two relevant questions at a time.
+        Do not present a long checklist unless the customer asks for one.
+
+        If the customer explicitly asks whether they qualify, are eligible,
+        or requests pre-qualification, that is an ELIGIBILITY request.
+
+        Do not say the customer is eligible or ineligible unless an eligibility
+        assessment has been requested.
+
+        Do not invent policy requirements.
+
+        Return valid JSON only:
+
+        {{
+        "answer": "..."
+        }}
+
+        Do not include any other fields.
+        """
+
+        messages = [
+            {
+                "role": "system",
+                "content": system_prompt,
+            }
+        ]
+
+        messages.extend(history)
+
+        messages.append({
+            "role": "user",
+            "content": question,
+        })
+
+        return messages, []
+
+    # ---------------------------------------------------------
+    # ELIGIBILITY / POLICY RAG
+    # ---------------------------------------------------------
+
+    rag_results = retrieve_clauses(question=question)
 
     rag_context = [
         {
+            "id": item.get(
+                "clause_id",
+                item.get("rule_id", "-")
+            ),
             "doc": item["doc"],
-            "text": item["text"],
+            "section": item.get("section", "-"),
+            "title": item.get("title", "-"),
+            "subsection": item.get("subsection", "-"),
+            "subsection_title": item.get(
+                "subsection_title",
+                "-"
+            ),
             "rule_id": item.get("rule_id", "-"),
+            "text": item["text"],
+            "distance": item.get("distance"),
         }
         for item in rag_results
     ]
 
     rag_formatted = "\n\n".join(
         f"[{item.get('rule_id', '-')}] "
+        f"[Loan Type: {item.get('title', '-')}] "
+        f"[Criterion: {item.get('subsection_title', '-')}] "
         f"[{item['doc']}]\n"
         f"Rule: {item['text']}"
         for item in rag_results
@@ -397,30 +536,60 @@ Do not include any other fields.
     system_prompt = f"""
 {system}
 
-This is an eligibility-related request.
+This is a loan-policy or eligibility-related request.
+
+The customer has explicitly requested an eligibility assessment or a
+factual answer about loan policy.
 
 Use ONLY the policy information provided below.
 
-Determine the eligibility decision according to the policy.
-Do not invent rules or customer information.
+For an eligibility assessment:
+- Use the customer's information from the conversation history.
+- Do not assume missing applicant information.
+- If required information is missing, use NEEDS_INFORMATION.
+- Apply only rules relevant to the customer's specified loan type.
+- Do not invent rules, thresholds, documents, amounts, dates, or exceptions.
+- Do not treat optional documents as universally mandatory.
 
-Return valid JSON only:
+For a factual policy question:
+- Answer the question directly using the retrieved policy context.
+- Do not perform an eligibility assessment unless the customer asked
+  whether they personally qualify.
+
+CITATIONS:
+
+When making a factual statement based on a retrieved rule, cite the
+corresponding rule ID in square brackets.
+
+Example:
+"The minimum CIBIL score for a home loan is 700. [HOME-CREDIT-001]"
+
+Only cite rule IDs that appear in the policy context below.
+
+For a factual policy question, return:
+
+{{
+    "answer": "...",
+    "citations": ["RULE-ID"]
+}}
+
+For a personal eligibility assessment, return:
 
 {{
     "decision": "PRE_QUALIFIED" | "NOT_PRE_QUALIFIED" |
                  "NEEDS_INFORMATION" | "MANUAL_REVIEW",
-    "answer": "A clear, user-friendly explanation of the decision."
+    "answer": "...",
+    "citations": ["RULE-ID"]
 }}
 
 Rules:
-
-- "decision" MUST contain the eligibility decision.
-- "answer" is the message shown directly to the applicant.
+- Return valid JSON only.
 - Do not include Markdown.
-- Do not include any fields other than "decision" and "answer".
+- Do not include fields other than the fields specified above.
+- "answer" is the message shown directly to the applicant.
+- "citations" must contain only rule IDs present in the policy context.
+- Do not fabricate citation IDs.
 - Apply the policy rules exactly.
-- If required information is missing, use NEEDS_INFORMATION.
-- Do not assume missing information.
 
 Policy context:
 
@@ -431,42 +600,121 @@ Policy context:
         {
             "role": "system",
             "content": system_prompt,
-        },
-        {
-            "role": "user",
-            "content": question,
-        },
+        }
     ]
+
+    # IMPORTANT:
+    # History comes BEFORE the current question.
     messages.extend(history)
+
+    messages.append({
+        "role": "user",
+        "content": question,
+    })
+
     return messages, rag_context
 
-CITATION_RE = re.compile(r"\[((?:INCOME|EMP|AGE)-\d+)\]")
+# ---------------------------------------------------------
+# Citation extraction
+# ---------------------------------------------------------
 
-def extract_citations(answer: str, retrieved: list[dict]) -> list[Citation]:
-    """Turn [M-2.3]-style ids in the answer into verifiable Citation objects.
+# New rule IDs:
+#
+# HOME-CREDIT-001
+# HOME-AGE-001
+# PERSONAL-INCOME-001
+# AUTO-CREDIT-001
+# EDUCATION-DOC-001
+# BUSINESS-VINTAGE-001
+# LAP-PROPERTY-001
+#
+# Also supports simpler IDs such as:
+# INFO-001
+# DECISION-001
+# STATUS-001
 
-    Only ids that were actually RETRIEVED (or exist in the store) become
-    citations — an id the model invented that matches no chunk is dropped,
-    which is itself a faithfulness signal.
+CITATION_RE = re.compile(
+    r"\[([A-Z]+(?:-[A-Z0-9]+)*-\d+)\]"
+)
+
+
+def extract_citations(
+    answer: str,
+    retrieved: list[dict],
+) -> list[Citation]:
+
+    """Resolve policy rule IDs cited by the model.
+
+    Only citations that can be verified against the retrieved chunks or
+    the Chroma collection are returned.
+
+    This prevents the model from creating arbitrary rule IDs that do
+    not exist in the policy corpus.
     """
-    by_id = {c["id"]: c for c in retrieved}
+
+    by_id: dict[str, dict] = {}
+
+    for chunk in retrieved:
+
+        # Prefer the explicit rule_id exposed in the ingested chunk metadata.
+        rule_id = chunk.get("rule_id")
+        if rule_id and rule_id != "-":
+            by_id[rule_id] = chunk
+
+        # Also index the actual Chroma chunk ID.
+        clause_id = chunk.get("clause_id") or chunk.get("id")
+        if clause_id:
+            by_id[clause_id] = chunk
+
     citations: list[Citation] = []
-    for cid in dict.fromkeys(CITATION_RE.findall(answer)):  # unique, ordered
+
+    # dict.fromkeys preserves citation order while removing duplicates.
+    for cid in dict.fromkeys(CITATION_RE.findall(answer)):
+
         chunk = by_id.get(cid)
+
         if chunk is None:
-            # cited but not in the top-K: look it up directly in the store so
-            # a legitimate citation outside the retrieval window still resolves
-            got = get_collection().get(ids=[cid])
+
+            # The model may have cited a valid rule that was not in the
+            # top-K retrieval results. Resolve it directly from Chroma.
+            try:
+                got = get_collection().get(ids=[cid])
+            except Exception:
+                continue
+
             if not got["ids"]:
-                continue  # invented id — drop it
+                # Invented/non-existent rule ID.
+                continue
+
+            metadata = got["metadatas"][0]
+
             chunk = {
                 "id": cid,
-                "doc": got["metadatas"][0]["doc"],
+                "clause_id": cid,
+                "doc": metadata.get("doc", "-"),
+                "section": metadata.get("section", "-"),
+                "title": metadata.get("title", "-"),
+                "subsection": metadata.get("subsection"),
+                "subsection_title": metadata.get("subsection_title"),
+                "rule_id": metadata.get("rule_id", cid),
                 "text": got["documents"][0],
+                "distance": None,
             }
+
         citations.append(
-            Citation(id=cid, doc=chunk["doc"], snippet=chunk["text"][:200])
+            Citation(
+                id=chunk.get("id") or chunk.get("clause_id") or cid,
+                doc=chunk.get("doc", "-"),
+                section=chunk.get("section", "-"),
+                title=chunk.get("title", "-"),
+                subsection=chunk.get("subsection"),
+                subsection_title=chunk.get("subsection_title"),
+                rule_id=chunk.get("rule_id", cid),
+                text=chunk.get("text", ""),
+                distance=chunk.get("distance"),
+            )
         )
+
     return citations
 
 NOT_FOUND_ANSWER = "This is not covered in the policy documents I have access to."
@@ -499,12 +747,37 @@ async def call_llm(messages: list, max_tokens: int = 300, model: str = "") -> st
                f"{type(last_error).__name__}",
     )
 
-def audit_log(entry: dict):
-    """Append one audit event as a JSON line."""
-    os.makedirs(os.path.dirname(AUDIT_PATH), exist_ok=True)
+def audit_log(entry: dict, session_id: Optional[str] = None) -> None:
+    """Append one audit event as a JSON line, separated by session.
 
-    with open(AUDIT_PATH, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    Prefer the parameterized request session id; fall back to the session_id
+    already embedded in the event payload. Never overwrite the payload's
+    session_id with None, and never let an audit write error take the API down.
+    """
+
+    # Prefer the explicit session id passed by the endpoint. If no explicit
+    # id was passed, recover it from the audit payload.
+    payload_session_id = session_id or entry.get("session_id")
+
+    # Sanitize to produce a safe session-specific file name.
+    if payload_session_id:
+        safe_session_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", payload_session_id)
+        base, ext = os.path.splitext(AUDIT_PATH)
+        audit_path = f"{base}_{safe_session_id}{ext}"
+    else:
+        audit_path = AUDIT_PATH
+
+    try:
+        os.makedirs(os.path.dirname(audit_path), exist_ok=True)
+
+        safe_entry = dict(entry)
+        if payload_session_id:
+            safe_entry["session_id"] = payload_session_id
+
+        with open(audit_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(safe_entry, ensure_ascii=False) + "\n")
+    except (PermissionError, OSError) as exc:
+        logger.warning("Audit log write failed for %s: %s", audit_path, exc)
 
 # --- endpoints -------------------------------------------------------------------
 @app.get("/health")
@@ -541,13 +814,15 @@ async def ask(
         )
     # ---- layer 1: input guard (before the model sees anything) --------------
     t0 = time.perf_counter()
-    verdict = check_input(req.question, client, LLM_MODEL)
+    history = get_history(session_id)
+    print("history")
+    print(history)
+    verdict = check_input(req.question, client, history, LLM_MODEL)
     print(verdict)
     if not verdict["allowed"]:
         latency_ms = round((time.perf_counter() - t0) * 1000)
         audit_log({
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "session_id": session_id,
             "requested_model": LLM_MODEL,
             "actual_model": None,
             "prompt_redacted": redact(req.question),
@@ -555,7 +830,7 @@ async def ask(
             "latency_ms": latency_ms,
             "max_tokens": None,
             "prompt_version": PROMPT_VERSION
-        })
+        }, session_id=session_id)
         return AskResponse(
             answer=REFUSAL,
             citations=[],
@@ -564,11 +839,12 @@ async def ask(
             reason=verdict["reason"],
             prompt_version=PROMPT_VERSION,
         )
-    elif verdict["allowed"] and verdict["type"]=="GENERAL":
+    elif verdict["allowed"] and verdict["type"] in {"GENERAL", "APPLICANT_INFO"}:
         t0 = time.perf_counter()
+        completion = None
         try:
             # messages, rag_context = build_messages(req.question, request_type="general")
-            messages, rag_context = build_messages(req.question, request_type=verdict["type"], session_id=session_id)
+            messages, rag_context = build_messages(req.question, request_type=verdict["type"], history=history)
             completion = client.chat.completions.create(
                 model=LLM_MODEL,
                 messages=messages,
@@ -576,11 +852,23 @@ async def ask(
             )
             content = (completion.choices[0].message.content or "").strip()
             answer = content
+            # 5. Save the user's message
+            save_message(
+                session_id,
+                "user",
+                req.question,
+            )
+
+            # 6. Save the assistant's response
+            save_message(
+                session_id,
+                "assistant",
+                answer,
+            )
         except Exception as exc:
             latency_ms = round((time.perf_counter() - t0) * 1000)
             audit_log({
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "session_id": session_id,
                 "requested_model": LLM_MODEL,
                 "actual_model": (
                     completion.model
@@ -588,17 +876,16 @@ async def ask(
                     else "failed_at_llm_call"
                 ),
                 "prompt_redacted": redact(req.question),
-                "response_redacted": {exc},
+                "response_redacted": str(exc),
                 "latency_ms": latency_ms,
                 "prompt_version": PROMPT_VERSION
-            })
+            }, session_id=session_id)
             raise HTTPException(status_code=502, detail=f"Upstream LLM error: {exc}")
         out = check_output(answer)
         if not out["text"]:
             latency_ms = round((time.perf_counter() - t0) * 1000)
             audit_log({
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "session_id": session_id,
                 "requested_model": LLM_MODEL,
                 "actual_model": (
                     completion.model
@@ -610,7 +897,7 @@ async def ask(
                 "citations": rag_context,
                 "latency_ms": latency_ms,
                 "prompt_version": PROMPT_VERSION
-            })
+            }, session_id=session_id)
             return AskResponse(
                 answer="I could not generate an answer. Please contact the helpline.",
                 citations=[],
@@ -622,7 +909,6 @@ async def ask(
         latency_ms = round((time.perf_counter() - t0) * 1000)
         audit_log({
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "session_id": session_id,
             "requested_model": LLM_MODEL,
             "actual_model": (
                 completion.model
@@ -633,7 +919,7 @@ async def ask(
             "response_redacted": redact(out["text"]),
             "latency_ms": latency_ms,
             "prompt_version": PROMPT_VERSION
-        })
+        }, session_id=session_id)
         confidence = "medium"
         return AskResponse(
             answer=answer,
@@ -662,23 +948,36 @@ async def ask(
         # The langfuse.openai wrapper records this generation (model, latency,
         # token usage, prompt, completion) inside the current trace automatically.
         t0 = time.perf_counter()
+        completion = None
         try:
             # messages, rag_context = build_messages(req.question, request_type="rag")
-            messages, rag_context = build_messages(req.question, request_type=verdict["type"], session_id=session_id)
+            messages, rag_context = build_messages(req.question, request_type=verdict["type"], history=history)
             completion = client.chat.completions.create(
                 model=LLM_MODEL,
                 messages=messages,
-                max_tokens=3000,
+                max_tokens=1024,
             )
             content = (completion.choices[0].message.content or "").strip()
             output = json.loads(content)
             decision = output["decision"]
             answer = output["answer"]
+            # 5. Save the user's message
+            save_message(
+                req.session_id,
+                "user",
+                question,
+            )
+
+            # 6. Save the assistant's response
+            save_message(
+                session_id,
+                "assistant",
+                answer,
+            )
         except Exception as exc:
             latency_ms = round((time.perf_counter() - t0) * 1000)
             audit_log({
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "session_id": session_id,
                 "requested_model": LLM_MODEL,
                 "actual_model": (
                     completion.model
@@ -686,10 +985,10 @@ async def ask(
                     else "failed_at_llm_call"
                 ),
                 "prompt_redacted": redact(req.question),
-                "response_redacted": {exc},
+                "response_redacted": str(exc),
                 "latency_ms": latency_ms,
                 "prompt_version": PROMPT_VERSION
-            })
+            }, session_id=session_id)
             raise HTTPException(status_code=502, detail=f"Upstream LLM error: {exc}")
         # logger.info("llm_call ok latency_ms=%s prompt_version=%s session=%s",
         #             latency_ms, PROMPT_VERSION, session_id)
@@ -700,7 +999,6 @@ async def ask(
             latency_ms = round((time.perf_counter() - t0) * 1000)
             audit_log({
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "session_id": session_id,
                 "requested_model": LLM_MODEL,
                 "actual_model": (
                     completion.model
@@ -712,7 +1010,7 @@ async def ask(
                 "citations": rag_context,
                 "latency_ms": latency_ms,
                 "prompt_version": PROMPT_VERSION
-            })
+            }, session_id=session_id)
             return AskResponse(
                 answer="I could not generate an answer. Please contact the helpline.",
                 decision="NEEDS_INFORMATION",
@@ -725,7 +1023,6 @@ async def ask(
         latency_ms = round((time.perf_counter() - t0) * 1000)
         audit_log({
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "session_id": session_id,
             "requested_model": LLM_MODEL,
             "actual_model": (
                 completion.model
@@ -737,9 +1034,18 @@ async def ask(
             "citations": rag_context,
             "latency_ms": latency_ms,
             "prompt_version": PROMPT_VERSION
-        })
+        }, session_id=session_id)
         if idempotency_key:
-            idempotency_put(idempotency_key, final.model_dump())
+            response = AskResponse(
+                answer=out["text"],
+                decision=decision,
+                citations=rag_context,
+                confidence="high" if out["refused"] else "medium",
+                refused=out["refused"],
+                reason=out["reason"],
+                prompt_version=PROMPT_VERSION,
+            )
+            idempotency_put(idempotency_key, response.model_dump())
 
         confidence = "medium"
         return AskResponse(

@@ -157,31 +157,109 @@ LOAN_KEYWORDS = [
 # keyword ("hello", "thanks", "who are you?") — refusing greetings is bad UX.
 OFF_TOPIC_MIN_WORDS = 6
 
-def classify_intent(text: str, client, model: str) -> str:
+def classify_intent(
+    text: str,
+    client,
+    model: str,
+    history: list | None = None,
+) -> str:
+    """
+    Classify the user's current message.
+
+    GENERAL:
+        Normal conversation, loan exploration, how-to questions,
+        general loan information, or asking what information is needed.
+
+    APPLICANT_INFO:
+        User is providing personal information that may be useful
+        for a future eligibility assessment, but is NOT asking
+        whether they qualify.
+
+    ELIGIBILITY:
+        User explicitly asks whether they qualify / are eligible
+        or requests an eligibility / pre-qualification assessment.
+    """
+
+    history = history or []
+
+    # Keep the classifier context small.
+    recent_history = history[-6:]
+
     messages = [
         {
             "role": "system",
             "content": (
-                "Classify the user message as exactly one of:\n"
+                "You are an intent classifier for LoanAssist.\n\n"
+
+                "Classify the user's CURRENT message as exactly one of:\n"
                 "GENERAL\n"
+                "APPLICANT_INFO\n"
                 "ELIGIBILITY\n\n"
-                "GENERAL = conversation, greetings, questions "
-                "about the assistant, how to apply, or general "
-                "loan information.\n"
-                "ELIGIBILITY = asking whether the user qualifies, "
-                "or providing personal eligibility information such "
-                "as age, income, employment, residency, or credit status.\n\n"
-                "Return ONLY GENERAL or ELIGIBILITY."
+
+                "GENERAL means:\n"
+                "- greetings or casual conversation\n"
+                "- questions about LoanAssist\n"
+                "- questions about how to apply\n"
+                "- general loan information\n"
+                "- choosing or discussing a loan type\n"
+                "- asking what information is needed\n"
+                "- progressing through a loan conversation\n\n"
+
+                "APPLICANT_INFO means:\n"
+                "- the user is providing personal information that may "
+                "be relevant to a loan assessment\n"
+                "- examples: age, income, employment status, residency, "
+                "credit score, existing loans, etc.\n"
+                "- the user is NOT explicitly asking whether they qualify\n\n"
+
+                "ELIGIBILITY means:\n"
+                "- the user explicitly asks whether they qualify\n"
+                "- asks whether they are eligible\n"
+                "- asks if they can get the loan\n"
+                "- asks for eligibility or pre-qualification\n"
+                "- asks whether their personal circumstances satisfy "
+                "the loan requirements\n\n"
+
+                "IMPORTANT:\n"
+                "Providing personal information alone is NOT an "
+                "eligibility request.\n\n"
+
+                "Examples:\n"
+                "\"My age is 45\" -> APPLICANT_INFO\n"
+                "\"I earn 80000 a month\" -> APPLICANT_INFO\n"
+                "\"I'm self-employed\" -> APPLICANT_INFO\n"
+                "\"My CIBIL score is 750\" -> APPLICANT_INFO\n"
+                "\"What information do you need?\" -> GENERAL\n"
+                "\"I want a car loan\" -> GENERAL\n"
+                "\"How do I apply?\" -> GENERAL\n"
+                "\"Am I eligible?\" -> ELIGIBILITY\n"
+                "\"Can I get a car loan?\" -> ELIGIBILITY\n"
+                "\"Will I qualify with a CIBIL score of 750?\" "
+                "-> ELIGIBILITY\n\n"
+
+                "Use the conversation history to understand ambiguous "
+                "messages, but classify the CURRENT message.\n\n"
+
+                "Return ONLY one of:\n"
+                "GENERAL\n"
+                "APPLICANT_INFO\n"
+                "ELIGIBILITY"
             ),
-        },
-        {"role": "user", "content": text},
+        }
     ]
+
+    messages.extend(recent_history)
+
+    messages.append({
+        "role": "user",
+        "content": text,
+    })
 
     try:
         completion = client.chat.completions.create(
             model=model,
             messages=messages,
-            max_tokens=3,
+            max_tokens=5,
             temperature=0,
         )
 
@@ -189,7 +267,11 @@ def classify_intent(text: str, client, model: str) -> str:
             completion.choices[0].message.content or ""
         ).strip().upper()
 
-        if result in {"GENERAL", "ELIGIBILITY"}:
+        if result in {
+            "GENERAL",
+            "APPLICANT_INFO",
+            "ELIGIBILITY",
+        }:
             return result
 
     except Exception as exc:
@@ -198,10 +280,9 @@ def classify_intent(text: str, client, model: str) -> str:
             type(exc).__name__,
         )
 
-    # Safe fallback
     return "GENERAL"
 
-def check_input(text: str, client, model: str) -> dict:
+def check_input(text: str, client, history, model: str) -> dict:
     lowered = text.lower()
 
     # Injection remains deterministic
@@ -223,16 +304,18 @@ def check_input(text: str, client, model: str) -> dict:
         )
 
     # LLM determines conversation intent
-    intent = classify_intent(
-        text,
-        client,
-        model,
+
+    request_type = classify_intent(
+        text=text,
+        client=client,
+        model=model,
+        history=history,
     )
 
     return {
         "allowed": True,
         "reason": None,
-        "type": intent,
+        "type": request_type,
     }
 
 
