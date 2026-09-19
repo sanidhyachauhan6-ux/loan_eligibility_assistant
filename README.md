@@ -103,6 +103,49 @@ python rag/ingest.py
 This recreates the `eligibility` ChromaDB collection. Its first run downloads
 an approximately 80 MB embedding model.
 
+## Prompt evaluation push checks
+
+### Local execution
+
+Copy the pre-push hook into `.git/hooks/`:
+
+```bash
+mkdir -p .git/hooks
+cp hooks/pre-push .git/hooks/pre-push
+chmod +x .git/hooks/pre-push
+```
+
+This hook is built into Git and runs on your machine before commands such as
+`git push`. It blocks the push when the local evaluation checks fail.
+
+### GitHub server execution
+
+Copy the GitHub Actions workflow into `.github/workflows/`:
+
+```bash
+mkdir -p .github/workflows
+cp reference/github-actions-eval-gate.yml .github/workflows/eval-gate.yml
+git add .github/workflows/eval-gate.yml
+git commit -m "Add GitHub evaluation gate"
+git push
+```
+
+GitHub recognizes files in `.github/workflows/` and runs this check on GitHub's
+cloud servers when you push or open a pull request.
+
+### Create the `API_KEY` GitHub secret online
+
+1. Open the repository on GitHub.
+2. Select **Settings**.
+3. Select **Secrets and variables → Actions**.
+4. Click **New repository secret**.
+5. Enter `API_KEY` as the secret name.
+6. Enter the API key required by the API as the value.
+7. Click **Add secret**.
+
+Never commit the API key to the repository. The workflow reads it using
+`${{ secrets.API_KEY }}`.
+
 ## Run the application
 
 Start the backend stack:

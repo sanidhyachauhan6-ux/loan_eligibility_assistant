@@ -182,6 +182,54 @@ def classify_intent(
 
     history = history or []
 
+    # Structured applicant payloads are eligibility inputs in this app's
+    # request flow. Use the policy-derived applicant fields so these inputs
+    # bypass APPLICANT_INFO and go to the eligibility branch.
+    lowered = text.lower()
+    structured_fields = [
+        "age=",
+        "date of birth=",
+        "dob=",
+        "residency=",
+        "resident=",
+        "monthly income=",
+        "annual income=",
+        "income=",
+        "salary=",
+        "gross income=",
+        "business income=",
+        "turnover=",
+        "employment=",
+        "employed=",
+        "employment tenure=",
+        "business vintage=",
+        "self-employed",
+        "credit=",
+        "cibil=",
+        "credit score=",
+        "default=",
+        "emi=",
+        "debt=",
+        "loan amount=",
+        "loan tenure=",
+        "tenure=",
+        "requested loan=",
+        "loan type=",
+        "property value=",
+        "vehicle=",
+        "education=",
+        "co-applicant=",
+        "guarantor=",
+        "collateral=",
+        "monthly obligations=",
+        "fixed monthly debt=",
+        "retirement age=",
+        "remaining working years=",
+        "loan purpose=",
+    ]
+    if any(field in lowered for field in structured_fields):
+        return "ELIGIBILITY"
+
     # Keep the classifier context small.
     recent_history = history[-6:]
 

@@ -358,48 +358,48 @@ def build_messages(
     if request_type == "GENERAL":
 
         system_prompt = f"""
-{system}
+        {system}
 
-This is a conversational LoanAssist interaction.
+        This is a conversational LoanAssist interaction.
 
-Use the conversation history to maintain continuity.
+        Use the conversation history to maintain continuity.
 
-Do not restart the conversation or repeat information that the customer
-has already provided.
+        Do not restart the conversation or repeat information that the customer
+        has already provided.
 
-The customer's current message should be answered in the context of the
-conversation.
+        The customer's current message should be answered in the context of the
+        conversation.
 
-If the customer is simply discussing a loan, choosing a loan type, asking
-how to apply, or asking what information is needed, respond naturally.
+        If the customer is simply discussing a loan, choosing a loan type, asking
+        how to apply, or asking what information is needed, respond naturally.
 
-Do not perform an eligibility assessment unless the customer explicitly
-asks whether they qualify, are eligible, or requests pre-qualification.
+        Do not perform an eligibility assessment unless the customer explicitly
+        asks whether they qualify, are eligible, or requests pre-qualification.
 
-If the customer asks what information is needed:
-- explain the relevant information conversationally;
-- do not dump a long checklist unless the customer asks for a complete list;
-- ask only for the next relevant information.
+        If the customer asks what information is needed:
+        - explain the relevant information conversationally;
+        - do not dump a long checklist unless the customer asks for a complete list;
+        - ask only for the next relevant information.
 
-If the customer provides personal information, acknowledge it naturally
-and continue the conversation.
+        If the customer provides personal information, acknowledge it naturally
+        and continue the conversation.
 
-Avoid repetitive or mechanical phrases such as:
-"Could you please provide more details..."
-"Please share your income, employment status, and credit score..."
-unless those details are actually needed at this point.
+        Avoid repetitive or mechanical phrases such as:
+        "Could you please provide more details..."
+        "Please share your income, employment status, and credit score..."
+        unless those details are actually needed at this point.
 
-Ask one or two relevant questions at a time rather than presenting a
-large questionnaire.
+        Ask one or two relevant questions at a time rather than presenting a
+        large questionnaire.
 
-Return valid JSON only:
+        Return valid JSON only:
 
-{{
-    "answer": "..."
-}}
+        {{
+            "answer": "..."
+        }}
 
-Do not include any other fields.
-"""
+        Do not include any other fields.
+        """
 
         messages = [
             {
@@ -534,67 +534,26 @@ Do not include any other fields.
     )
 
     system_prompt = f"""
-{system}
+    IMPORTANT: ALWAYS RETURN VALID JSON. NEVER RETURN PLAIN TEXT.
 
-This is a loan-policy or eligibility-related request.
-
-The customer has explicitly requested an eligibility assessment or a
-factual answer about loan policy.
-
-Use ONLY the policy information provided below.
-
-For an eligibility assessment:
-- Use the customer's information from the conversation history.
-- Do not assume missing applicant information.
-- If required information is missing, use NEEDS_INFORMATION.
-- Apply only rules relevant to the customer's specified loan type.
-- Do not invent rules, thresholds, documents, amounts, dates, or exceptions.
-- Do not treat optional documents as universally mandatory.
-
-For a factual policy question:
-- Answer the question directly using the retrieved policy context.
-- Do not perform an eligibility assessment unless the customer asked
-  whether they personally qualify.
-
-CITATIONS:
-
-When making a factual statement based on a retrieved rule, cite the
-corresponding rule ID in square brackets.
-
-Example:
-"The minimum CIBIL score for a home loan is 700. [HOME-CREDIT-001]"
-
-Only cite rule IDs that appear in the policy context below.
-
-For a factual policy question, return:
-
-{{
-    "answer": "...",
+    OUTPUT FORMAT:
+    {{
+    "decision": "PRE_QUALIFIED" | "NOT_PRE_QUALIFIED" | "NEEDS_INFORMATION" | "MANUAL_REVIEW",
+    "answer": "Response to the customer",
     "citations": ["RULE-ID"]
-}}
+    }}
 
-For a personal eligibility assessment, return:
+    {system}
 
-{{
-    "decision": "PRE_QUALIFIED" | "NOT_PRE_QUALIFIED" |
-                 "NEEDS_INFORMATION" | "MANUAL_REVIEW",
-    "answer": "...",
-    "citations": ["RULE-ID"]
-}}
+    DECISION:
+    - Eligibility assessment + missing/ambiguous required information → NEEDS_INFORMATION.
+    - Eligibility assessment + complete information → PRE_QUALIFIED, NOT_PRE_QUALIFIED, or MANUAL_REVIEW.
+    - No eligibility assessment → answer the customer's question normally; use NEEDS_INFORMATION if information is required to answer it.
+    - Never guess or infer missing information.
+    - Use the entire conversation history.
 
-Rules:
-- Return valid JSON only.
-- Do not include Markdown.
-- Do not include fields other than the fields specified above.
-- "answer" is the message shown directly to the applicant.
-- "citations" must contain only rule IDs present in the policy context.
-- Do not fabricate citation IDs.
-- Apply the policy rules exactly.
-
-Policy context:
-
-{rag_formatted}
-"""
+    Return ONLY the JSON object described above.
+    """
 
     messages = [
         {
@@ -803,18 +762,19 @@ async def ask(
     x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id")
 ):
     """Middleware order: input guard -> traced LLM call -> output guard."""
-    session_id = x_session_id or f"anon-{uuid.uuid4().hex[:8]}"
-
+    # session_id = x_session_id or f"anon-{uuid.uuid4().hex[:8]}"
     # Tag the trace so it is filterable in Langfuse: prompt_version drives the
     # A/B comparison; session_id groups a conversation end-to-end.
     if LANGFUSE_ENABLED:
         langfuse_context.update_current_trace(
-            session_id=session_id,
+            session_id=x_session_id,
             tags=[f"prompt_version:{PROMPT_VERSION}", "app:loanassist"],
         )
+    print("x_session_id")
+    print(x_session_id)
     # ---- layer 1: input guard (before the model sees anything) --------------
     t0 = time.perf_counter()
-    history = get_history(session_id)
+    history = get_history(x_session_id)
     print("history")
     print(history)
     verdict = check_input(req.question, client, history, LLM_MODEL)
@@ -830,7 +790,7 @@ async def ask(
             "latency_ms": latency_ms,
             "max_tokens": None,
             "prompt_version": PROMPT_VERSION
-        }, session_id=session_id)
+        }, session_id=x_session_id)
         return AskResponse(
             answer=REFUSAL,
             citations=[],
@@ -854,14 +814,14 @@ async def ask(
             answer = content
             # 5. Save the user's message
             save_message(
-                session_id,
+                x_session_id,
                 "user",
                 req.question,
             )
 
             # 6. Save the assistant's response
             save_message(
-                session_id,
+                x_session_id,
                 "assistant",
                 answer,
             )
@@ -879,7 +839,7 @@ async def ask(
                 "response_redacted": str(exc),
                 "latency_ms": latency_ms,
                 "prompt_version": PROMPT_VERSION
-            }, session_id=session_id)
+            }, session_id=x_session_id)
             raise HTTPException(status_code=502, detail=f"Upstream LLM error: {exc}")
         out = check_output(answer)
         if not out["text"]:
@@ -897,7 +857,7 @@ async def ask(
                 "citations": rag_context,
                 "latency_ms": latency_ms,
                 "prompt_version": PROMPT_VERSION
-            }, session_id=session_id)
+            }, session_id=x_session_id)
             return AskResponse(
                 answer="I could not generate an answer. Please contact the helpline.",
                 citations=[],
@@ -919,7 +879,7 @@ async def ask(
             "response_redacted": redact(out["text"]),
             "latency_ms": latency_ms,
             "prompt_version": PROMPT_VERSION
-        }, session_id=session_id)
+        }, session_id=x_session_id)
         confidence = "medium"
         return AskResponse(
             answer=answer,
@@ -952,28 +912,37 @@ async def ask(
         try:
             # messages, rag_context = build_messages(req.question, request_type="rag")
             messages, rag_context = build_messages(req.question, request_type=verdict["type"], history=history)
+            print("messages")
+            print(messages)
             completion = client.chat.completions.create(
                 model=LLM_MODEL,
                 messages=messages,
                 max_tokens=1024,
             )
+            print("completion")
+            print(completion)
             content = (completion.choices[0].message.content or "").strip()
-            output = json.loads(content)
-            decision = output["decision"]
-            answer = output["answer"]
+            print("1")
+            # output = json.loads(content)
+            # decision = output["decision"]
+            print("2")
+            # answer = output["answer"]
+            answer = content
+            print("4")
             # 5. Save the user's message
             save_message(
-                req.session_id,
+                x_session_id,
                 "user",
-                question,
+                req.question,
             )
-
+            print("5")
             # 6. Save the assistant's response
             save_message(
-                session_id,
+                x_session_id,
                 "assistant",
                 answer,
             )
+            print("6")
         except Exception as exc:
             latency_ms = round((time.perf_counter() - t0) * 1000)
             audit_log({
@@ -988,7 +957,7 @@ async def ask(
                 "response_redacted": str(exc),
                 "latency_ms": latency_ms,
                 "prompt_version": PROMPT_VERSION
-            }, session_id=session_id)
+            }, session_id=x_session_id)
             raise HTTPException(status_code=502, detail=f"Upstream LLM error: {exc}")
         # logger.info("llm_call ok latency_ms=%s prompt_version=%s session=%s",
         #             latency_ms, PROMPT_VERSION, session_id)
@@ -1010,10 +979,10 @@ async def ask(
                 "citations": rag_context,
                 "latency_ms": latency_ms,
                 "prompt_version": PROMPT_VERSION
-            }, session_id=session_id)
+            }, session_id=x_session_id)
             return AskResponse(
                 answer="I could not generate an answer. Please contact the helpline.",
-                decision="NEEDS_INFORMATION",
+                # decision="NEEDS_INFORMATION",
                 citations=[],
                 confidence="low",
                 refused=False,
@@ -1034,11 +1003,11 @@ async def ask(
             "citations": rag_context,
             "latency_ms": latency_ms,
             "prompt_version": PROMPT_VERSION
-        }, session_id=session_id)
+        }, session_id=x_session_id)
         if idempotency_key:
             response = AskResponse(
                 answer=out["text"],
-                decision=decision,
+                # decision=decision,
                 citations=rag_context,
                 confidence="high" if out["refused"] else "medium",
                 refused=out["refused"],
@@ -1050,7 +1019,7 @@ async def ask(
         confidence = "medium"
         return AskResponse(
             answer=out["text"],
-            decision=decision,
+            # decision=decision,
             citations=rag_context,
             confidence="high" if out["refused"] else confidence,
             refused=out["refused"],

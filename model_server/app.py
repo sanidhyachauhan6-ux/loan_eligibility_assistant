@@ -37,8 +37,8 @@ class ChatMessage(BaseModel):
 class ChatCompletionRequest(BaseModel):
     model: str = SERVED_MODEL
     messages: list[ChatMessage]
-    max_tokens: int = Field(default=256, ge=1, le=1024)
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=200, ge=1, le=1024)
+    temperature: float = Field(default=0.0, ge=0.0, le=1.0)
     stream: bool = False
 
 
@@ -55,13 +55,21 @@ def _generate(req: ChatCompletionRequest):
         tokenize=False,
         add_generation_prompt=True,
     )
-    out = generator(
-        prompt,
-        max_new_tokens=req.max_tokens,
-        do_sample=req.temperature > 0,
-        temperature=max(req.temperature, 1e-3),
-        return_full_text=False,
-    )
+
+    generation_kwargs = {
+        "max_new_tokens": req.max_tokens,
+        "return_full_text": False,
+    }
+
+    if req.temperature > 0:
+        generation_kwargs["do_sample"] = True
+        generation_kwargs["temperature"] = max(req.temperature, 1e-3)
+        generation_kwargs["top_p"] = 0.8
+        generation_kwargs["top_k"] = 20
+    else:
+        generation_kwargs["do_sample"] = False
+
+    out = generator(prompt, **generation_kwargs)
     text = out[0]["generated_text"].strip()
     # usage is counted with the real tokenizer — exactly what providers bill on
     prompt_tokens = len(tokenizer.encode(prompt))
