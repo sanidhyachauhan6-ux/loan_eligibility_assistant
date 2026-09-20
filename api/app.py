@@ -31,6 +31,13 @@ import re
 import httpx
 from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile, Depends, Response
 from fastapi.responses import StreamingResponse
+from typing import Optional
+
+DECISIONS = {
+    "PRE_QUALIFIED",
+    "NOT_PRE_QUALIFIED",
+    "NEEDS_INFORMATION",
+}
 from pydantic import BaseModel, Field
 
 import json
@@ -59,10 +66,17 @@ PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v1")
 CHROMA_DIR = os.environ.get("CHROMA_DIR", "rag/chroma")
 RAG_COLLECTION = "eligibility"
 AUDIT_PATH = os.environ.get("AUDIT_PATH", "/app/logs/audit.jsonl")
-TOP_K = 5  # clauses retrieved per question
+TOP_K = int(os.getenv("TOP_K", "8"))  # clauses retrieved per question
+MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES", "6"))
+ANSWER_MAX_TOKENS = int(os.getenv("ANSWER_MAX_TOKENS", "1024"))
 
 # ---- resilience knobs (unchanged from v1) -----------------------------------
-REQUEST_TIMEOUT = httpx.Timeout(90.0, connect=5.0)
+REQUEST_TIMEOUT = httpx.Timeout(
+    connect=5.0,
+    read=240.0,
+    write=30.0,
+    pool=10.0,
+)
 MAX_RETRIES = 2
 BACKOFF_BASE_S = 0.5
 
@@ -96,11 +110,14 @@ if not LANGFUSE_ENABLED:
             return fn
         return decorator
 
-
-client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=60.0,
-                max_retries=2)
+upstream_client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
 
 app = FastAPI(title="ClaimAssist API", version="5.0.0")
+
+
+@app.on_event("shutdown")
+async def close_upstream_client():
+    await upstream_client.aclose()
 
 # ---- RAG store ----------------------------------------------------------------
 # The API process embeds chroma directly (PersistentClient over the directory
@@ -122,40 +139,107 @@ def get_collection():
             detail=f"RAG store error: {type(exc).__name__}: {exc}",
         )
 
-
-def retrieve_clauses(question: str) -> list[dict]:
-    """Retrieve the top-K nearest policy clause chunks.
-
-    Returns chunks containing loan type, criterion, rule ID,
-    policy text, and retrieval distance.
-    """
-
-    res = get_collection().query(
-        query_texts=[question],
-        n_results=TOP_K,
+def get_products() -> list[str]:
+    data = get_collection().get(
+        include=["metadatas"]
     )
 
-    out = []
+    products = set()
 
-    for i in range(len(res["ids"][0])):
-        metadata = res["metadatas"][0][i]
+    for metadata in data["metadatas"]:
+        product = metadata.get("product")
 
-        out.append(
-            {
-                "clause_id": res["ids"][0][i],
-                "doc": metadata["doc"],
-                "section": metadata.get("section", "-"),
-                "title": metadata.get("title", "-"),
-                "subsection": metadata.get("subsection", "-"),
-                "subsection_title": metadata.get(
-                    "subsection_title", "-"
-                ),
-                "rule_id": metadata.get("rule_id", "-"),
-                "text": res["documents"][0][i],
-                "distance": res["distances"][0][i],
-            }
-        )
-    return out
+        if product and product != "general":
+            products.add(product)
+
+    return sorted(products)
+
+def detect_product(question: str) -> str | None:
+    question_lower = question.lower()
+
+    products = get_products()
+
+    matches = [
+        product
+        for product in products
+        if product.lower() in question_lower
+    ]
+
+    if not matches:
+        return None
+
+    return max(matches, key=len)
+
+
+def retrieve_clauses(question: str) -> list[dict]:
+    """
+    Retrieve clauses relevant to the question.
+
+    If a product/loan type can be detected, retrieve product-specific
+    clauses. General policy clauses such as DECISION-001 are also included.
+
+    Citation IDs are always taken directly from the stored rule_id.
+    """
+
+    collection = get_collection()
+
+    loan_type = detect_product(question)
+
+    query_kwargs = {
+        "query_texts": [question],
+        "n_results": TOP_K,
+        "include": [
+            "documents",
+            "metadatas",
+            "distances",
+        ],
+    }
+
+    # ---------------------------------------------------------
+    # Product-specific retrieval
+    # ---------------------------------------------------------
+    if loan_type:
+        query_kwargs["where"] = {
+            "$or": [
+                {"product": loan_type},
+                {"product": "general"},
+            ]
+        }
+
+    res = collection.query(**query_kwargs)
+
+    results = []
+
+    for chunk_id, text, metadata, distance in zip(
+        res["ids"][0],
+        res["documents"][0],
+        res["metadatas"][0],
+        res["distances"][0],
+    ):
+        rule_id = metadata.get("rule_id")
+
+        results.append({
+            # Actual Chroma chunk ID
+            "clause_id": chunk_id,
+
+            # Exact policy Rule ID.
+            # This is the ONLY value that should be used as a citation.
+            "rule_id": rule_id,
+
+            "doc": metadata.get("doc"),
+            "section": metadata.get("section"),
+            "title": metadata.get("title"),
+            "subsection": metadata.get("subsection"),
+            "subsection_title": metadata.get(
+                "subsection_title"
+            ),
+            "product": metadata.get("product"),
+
+            "text": text,
+            "distance": distance,
+        })
+
+    return results
 
 # ---- confidence: retrieval distance -> label ----------------------------------
 # Thresholds are CORPUS-SPECIFIC and belong in code review, not folklore.
@@ -410,7 +494,7 @@ def build_messages(
 
         # IMPORTANT:
         # History comes BEFORE the current question.
-        messages.extend(history)
+        messages.extend(history[-MAX_HISTORY_MESSAGES:])
 
         messages.append({
             "role": "user",
@@ -488,7 +572,7 @@ def build_messages(
             }
         ]
 
-        messages.extend(history)
+        messages.extend(history[-MAX_HISTORY_MESSAGES:])
 
         messages.append({
             "role": "user",
@@ -505,19 +589,13 @@ def build_messages(
 
     rag_context = [
         {
-            "id": item.get(
-                "clause_id",
-                item.get("rule_id", "-")
-            ),
+            "id": item["clause_id"],
+            "citation": item.get("rule_id") or item["clause_id"],
             "doc": item["doc"],
             "section": item.get("section", "-"),
             "title": item.get("title", "-"),
             "subsection": item.get("subsection", "-"),
-            "subsection_title": item.get(
-                "subsection_title",
-                "-"
-            ),
-            "rule_id": item.get("rule_id", "-"),
+            "subsection_title": item.get("subsection_title", "-"),
             "text": item["text"],
             "distance": item.get("distance"),
         }
@@ -538,21 +616,121 @@ def build_messages(
 
     OUTPUT FORMAT:
     {{
-    "decision": "PRE_QUALIFIED" | "NOT_PRE_QUALIFIED" | "NEEDS_INFORMATION" | "MANUAL_REVIEW",
+    "decision": "PRE_QUALIFIED" | "NOT_PRE_QUALIFIED" | "NEEDS_INFORMATION",
     "answer": "Response to the customer",
     "citations": ["RULE-ID"]
     }}
 
+    OUTPUT REQUIREMENTS:
+    - The "decision" field is authoritative.
+    - The "answer" must be consistent with the decision.
+    - If decision = NOT_PRE_QUALIFIED, do not ask for additional information as a prerequisite for that decision.
+    - If decision = NEEDS_INFORMATION, clearly identify the missing information needed to continue the assessment.
+    - If decision = PRE_QUALIFIED, do not claim approval or sanction; this is only a preliminary eligibility result.
+    - citations must contain only Rule IDs from the retrieved policy clauses that directly support the decision.
+
+
     {system}
 
-    DECISION:
-    - Eligibility assessment + missing/ambiguous required information → NEEDS_INFORMATION.
-    - Eligibility assessment + complete information → PRE_QUALIFIED, NOT_PRE_QUALIFIED, or MANUAL_REVIEW.
-    - No eligibility assessment → answer the customer's question normally; use NEEDS_INFORMATION if information is required to answer it.
-    - Never guess or infer missing information.
-    - Use the entire conversation history.
+    Use ONLY the supplied RAG policy clauses.
 
-    Return ONLY the JSON object described above.
+    Decision Criteria:
+
+    The eligibility decision MUST follow this exact evaluation order:
+
+    STEP 1 — IDENTIFY APPLICABLE RULES
+    - Identify the selected loan type from the information already provided.
+    - Apply only the mandatory eligibility criteria applicable to that loan type.
+    - Do not invent eligibility criteria or thresholds.
+    - Information-collection rules such as INFO-001 are NOT eligibility criteria by themselves.
+
+    STEP 2 — CHECK ALREADY-PROVIDED FACTS FOR FAILURES
+    - Before requesting or relying on any missing information, evaluate every mandatory eligibility criterion that can be evaluated using applicant information already provided.
+    - For each criterion that can be evaluated, determine whether it is SATISFIED or FAILED.
+    - If ANY mandatory eligibility criterion is FAILED, the decision MUST be NOT_PRE_QUALIFIED.
+    - Do NOT wait for missing information before returning NOT_PRE_QUALIFIED.
+    - Do NOT change NOT_PRE_QUALIFIED to NEEDS_INFORMATION because other applicant information is missing.
+
+    STEP 3 — CHECK FOR MISSING INFORMATION
+    - Only if ZERO mandatory eligibility criteria have FAILED:
+    - If one or more mandatory eligibility criteria cannot be evaluated because required information is missing or uncertain, return NEEDS_INFORMATION.
+    - Missing information must not be treated as SATISFIED.
+
+    STEP 4 — PRE-QUALIFICATION
+    - Return PRE_QUALIFIED only when ALL applicable mandatory eligibility criteria are explicitly SATISFIED.
+
+    MANDATORY DECISION ALGORITHM:
+
+    1. Evaluate all currently available applicant facts against applicable mandatory eligibility criteria.
+    2. IF ANY criterion = FAILED:
+        decision = NOT_PRE_QUALIFIED
+    3. ELSE IF ANY mandatory criterion = UNKNOWN/MISSING:
+        decision = NEEDS_INFORMATION
+    4. ELSE:
+        decision = PRE_QUALIFIED
+
+    Decision Priority:
+    NOT_PRE_QUALIFIED > NEEDS_INFORMATION > PRE_QUALIFIED
+
+    Rules:
+    - Use only the supplied RAG policy clauses and applicant information already provided.
+    - Never infer missing applicant information.
+    - Missing information = UNKNOWN/MISSING, not SATISFIED.
+    - Missing information = UNKNOWN/MISSING, not FAILED.
+    - A confirmed mandatory eligibility failure is sufficient for NOT_PRE_QUALIFIED.
+    - A confirmed mandatory eligibility failure takes precedence over all missing information.
+    - Do not wait for all required information to be collected before checking for known eligibility failures.
+    - Information-collection rules such as INFO-001 describe information that may need to be collected; they do not themselves establish eligibility criteria.
+    - INFO-001 must NOT cause the model to return NEEDS_INFORMATION when an already-provided applicant fact has conclusively failed a mandatory eligibility criterion.
+    - Do not invent eligibility requirements, thresholds, or assumptions.
+    - Do not use missing information as evidence that a criterion is satisfied.
+    - Every decision must be supported by the applicable Rule IDs.
+    - Cite only Rule IDs present in the retrieved policy context.
+
+    Fail-fast example:
+
+    Retrieved policy:
+
+    INFO-001:
+    Applicant information should include age, income, employment status,
+    CIBIL score, etc.
+
+    DECISION-001:
+    A confirmed failure of any mandatory eligibility criterion means the
+    applicant is not preliminarily eligible. A confirmed failure takes
+    precedence over missing information.
+
+    AGE-001:
+    Applicant age must be between 21 and 60 years.
+
+    Applicant facts:
+
+    Age = 65
+    Income = missing
+    Employment = missing
+    CIBIL = missing
+
+    Evaluation:
+
+    Age = FAILED
+    Income = UNKNOWN/MISSING
+    Employment = UNKNOWN/MISSING
+    CIBIL = UNKNOWN/MISSING
+
+    Decision:
+
+    NOT_PRE_QUALIFIED
+
+    Explanation:
+
+    The age criterion has already been conclusively failed. The system must
+    return NOT_PRE_QUALIFIED without waiting for income, employment, or CIBIL
+    information. INFO-001 identifies information that may need to be collected;
+    it does not prevent the system from detecting an already-known eligibility
+    failure.
+
+    Retrieved policy clauses:
+    {rag_context}
     """
 
     messages = [
@@ -564,7 +742,7 @@ def build_messages(
 
     # IMPORTANT:
     # History comes BEFORE the current question.
-    messages.extend(history)
+    messages.extend(history[-MAX_HISTORY_MESSAGES:])
 
     messages.append({
         "role": "user",
@@ -595,6 +773,23 @@ def build_messages(
 CITATION_RE = re.compile(
     r"\[([A-Z]+(?:-[A-Z0-9]+)*-\d+)\]"
 )
+def parse_model_output(content: str) -> tuple[str, Optional[str], list[str]]:
+    """Extract structured eligibility fields without breaking plain replies."""
+    try:
+        payload = json.loads(content)
+    except (TypeError, ValueError):
+        return content, None, []
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("answer"), str):
+        return content, None, []
+
+    decision = payload.get("decision")
+    if decision not in DECISIONS:
+        decision = None
+    citations = payload.get("citations", [])
+    if not isinstance(citations, list):
+        citations = []
+    return payload["answer"], decision, [str(item) for item in citations]
 
 
 def extract_citations(
@@ -629,7 +824,8 @@ def extract_citations(
 
     # dict.fromkeys preserves citation order while removing duplicates.
     for cid in dict.fromkeys(CITATION_RE.findall(answer)):
-
+        if cid in ["DECISION-001", "INFO-001"]:
+            continue  
         chunk = by_id.get(cid)
 
         if chunk is None:
@@ -673,10 +869,7 @@ def extract_citations(
                 distance=chunk.get("distance"),
             )
         )
-
     return citations
-
-NOT_FOUND_ANSWER = "This is not covered in the policy documents I have access to."
 
 # ---- upstream LLM calls (unchanged mechanics from v1/v2) -----------------------
 async def call_llm(messages: list, max_tokens: int = 300, model: str = "") -> str:
@@ -690,12 +883,11 @@ async def call_llm(messages: list, max_tokens: int = 300, model: str = "") -> st
     last_error: Optional[Exception] = None
     for attempt in range(MAX_RETRIES + 1):
         try:
-            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-                r = await client.post(
-                    f"{LLM_BASE_URL}/chat/completions", json=payload, headers=headers
-                )
-                r.raise_for_status()
-                return r.json()["choices"][0]["message"]["content"]
+            r = await upstream_client.post(
+                f"{LLM_BASE_URL}/chat/completions", json=payload, headers=headers
+            )
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"]
         except (httpx.TimeoutException, httpx.HTTPError) as exc:
             last_error = exc
             if attempt < MAX_RETRIES:
@@ -705,6 +897,43 @@ async def call_llm(messages: list, max_tokens: int = 300, model: str = "") -> st
         detail=f"LLM upstream unavailable after {MAX_RETRIES + 1} attempts: "
                f"{type(last_error).__name__}",
     )
+
+
+async def stream_llm(messages: list, max_tokens: int = 300,
+                     model: str = "") -> AsyncIterator[str]:
+    """Yield content deltas from the OpenAI-compatible upstream stream."""
+    payload = {
+        "model": model or LLM_MODEL,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "stream": True,
+    }
+    headers = {"Authorization": f"Bearer {LLM_API_KEY}"}
+
+    async with upstream_client.stream(
+        "POST",
+        f"{LLM_BASE_URL}/chat/completions",
+        json=payload,
+        headers=headers,
+    ) as response:
+        response.raise_for_status()
+        async for line in response.aiter_lines():
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+                delta = chunk["choices"][0].get("delta", {}).get("content")
+            except (ValueError, KeyError, IndexError, TypeError):
+                continue
+            if delta:
+                yield delta
+
+
+def sse_event(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 def audit_log(entry: dict, session_id: Optional[str] = None) -> None:
     """Append one audit event as a JSON line, separated by session.
@@ -754,6 +983,137 @@ async def health():
         "rag_chunks": rag_chunks
     }
 
+
+@app.post("/ask/stream")
+async def ask_stream(
+    req: AskRequest,
+    x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id"),
+):
+    """Stream answer deltas as SSE events.
+
+    The final event contains the same safety metadata needed by the UI. The
+    existing /ask endpoint remains the buffered, fully structured contract.
+    """
+    request_t0 = time.perf_counter()
+    history = get_history(x_session_id)
+    verdict = check_input(req.question, history)
+
+    async def events() -> AsyncIterator[str]:
+        if not verdict["allowed"]:
+            audit_log({
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "requested_model": LLM_MODEL,
+                "actual_model": None,
+                "prompt_redacted": redact(req.question),
+                "response_redacted": verdict["reason"],
+                "latency_ms": round((time.perf_counter() - request_t0) * 1000),
+                "stream": True,
+                "prompt_version": PROMPT_VERSION,
+            }, session_id=x_session_id)
+            yield sse_event({
+                "type": "final",
+                "answer": REFUSAL,
+                "citations": [],
+                "decision": None,
+                "refused": True,
+                "reason": verdict["reason"],
+            })
+            return
+
+        try:
+            messages, rag_context = build_messages(
+                req.question,
+                request_type=verdict["type"],
+                history=history,
+            )
+            answer_parts = []
+            stream_deltas = verdict["type"] != "ELIGIBILITY"
+            async for delta in stream_llm(
+                messages,
+                max_tokens=ANSWER_MAX_TOKENS,
+                model=LLM_MODEL,
+            ):
+                answer_parts.append(delta)
+                current = "".join(answer_parts)
+                # Stop as soon as a blocked phrase or PII appears. The final
+                # event replaces the partial answer with the refusal text.
+                checked = check_output(current)
+                if checked["refused"]:
+                    audit_log({
+                        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "requested_model": LLM_MODEL,
+                        "actual_model": LLM_MODEL,
+                        "prompt_redacted": redact(req.question),
+                        "response_redacted": checked["reason"],
+                        "latency_ms": round((time.perf_counter() - request_t0) * 1000),
+                        "stream": True,
+                        "prompt_version": PROMPT_VERSION,
+                    }, session_id=x_session_id)
+                    yield sse_event({
+                        "type": "final",
+                        "answer": REFUSAL,
+                        "citations": [],
+                        "decision": None,
+                        "refused": True,
+                        "reason": checked["reason"],
+                    })
+                    return
+                if stream_deltas:
+                    yield sse_event({"type": "delta", "content": delta})
+
+            answer = "".join(answer_parts)
+            checked = check_output(answer)
+            display_answer, decision, cited_ids = parse_model_output(checked["text"])
+            citations = extract_citations(
+                " ".join(f"[{cid}]" for cid in cited_ids), rag_context,
+            )
+            save_message(x_session_id, "user", req.question)
+            save_message(x_session_id, "assistant", display_answer)
+            audit_log({
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "requested_model": LLM_MODEL,
+                "actual_model": LLM_MODEL,
+                "prompt_redacted": redact(req.question),
+                "response_redacted": redact(display_answer),
+                "decision": decision,
+                "latency_ms": round((time.perf_counter() - request_t0) * 1000),
+                "stream": True,
+                "prompt_version": PROMPT_VERSION,
+            }, session_id=x_session_id)
+            yield sse_event({
+                "type": "final",
+                "answer": display_answer,
+                "decision": decision,
+                "citations": [citation.model_dump() for citation in citations],
+                "refused": checked["refused"],
+                "reason": checked["reason"],
+            })
+        except Exception as exc:
+            logger.warning("streaming_llm_failed error=%s", type(exc).__name__)
+            audit_log({
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "requested_model": LLM_MODEL,
+                "actual_model": LLM_MODEL,
+                "prompt_redacted": redact(req.question),
+                "response_redacted": str(exc),
+                "latency_ms": round((time.perf_counter() - request_t0) * 1000),
+                "stream": True,
+                "prompt_version": PROMPT_VERSION,
+            }, session_id=x_session_id)
+            yield sse_event({
+                "type": "error",
+                "message": "The answer could not be generated.",
+            })
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
 @app.post("/ask", response_model=AskResponse)
 @observe(name="loanassist-ask")  # one trace per /ask request
 async def ask(
@@ -762,6 +1122,7 @@ async def ask(
     x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id")
 ):
     """Middleware order: input guard -> traced LLM call -> output guard."""
+    request_t0 = time.perf_counter()
     # session_id = x_session_id or f"anon-{uuid.uuid4().hex[:8]}"
     # Tag the trace so it is filterable in Langfuse: prompt_version drives the
     # A/B comparison; session_id groups a conversation end-to-end.
@@ -770,15 +1131,10 @@ async def ask(
             session_id=x_session_id,
             tags=[f"prompt_version:{PROMPT_VERSION}", "app:loanassist"],
         )
-    print("x_session_id")
-    print(x_session_id)
     # ---- layer 1: input guard (before the model sees anything) --------------
     t0 = time.perf_counter()
     history = get_history(x_session_id)
-    print("history")
-    print(history)
-    verdict = check_input(req.question, client, history, LLM_MODEL)
-    print(verdict)
+    verdict = check_input(req.question, history)
     if not verdict["allowed"]:
         latency_ms = round((time.perf_counter() - t0) * 1000)
         audit_log({
@@ -788,6 +1144,7 @@ async def ask(
             "prompt_redacted": redact(req.question),
             "response_redacted": verdict["reason"],
             "latency_ms": latency_ms,
+            "total_latency_ms": round((time.perf_counter() - request_t0) * 1000),
             "max_tokens": None,
             "prompt_version": PROMPT_VERSION
         }, session_id=x_session_id)
@@ -801,16 +1158,14 @@ async def ask(
         )
     elif verdict["allowed"] and verdict["type"] in {"GENERAL", "APPLICANT_INFO"}:
         t0 = time.perf_counter()
-        completion = None
         try:
             # messages, rag_context = build_messages(req.question, request_type="general")
             messages, rag_context = build_messages(req.question, request_type=verdict["type"], history=history)
-            completion = client.chat.completions.create(
+            content = await call_llm(
+                messages,
+                max_tokens=ANSWER_MAX_TOKENS,
                 model=LLM_MODEL,
-                messages=messages,
-                max_tokens=300,
             )
-            content = (completion.choices[0].message.content or "").strip()
             answer = content
             # 5. Save the user's message
             save_message(
@@ -830,14 +1185,11 @@ async def ask(
             audit_log({
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "requested_model": LLM_MODEL,
-                "actual_model": (
-                    completion.model
-                    if completion is not None
-                    else "failed_at_llm_call"
-                ),
+                "actual_model": LLM_MODEL,
                 "prompt_redacted": redact(req.question),
                 "response_redacted": str(exc),
                 "latency_ms": latency_ms,
+                "total_latency_ms": round((time.perf_counter() - request_t0) * 1000),
                 "prompt_version": PROMPT_VERSION
             }, session_id=x_session_id)
             raise HTTPException(status_code=502, detail=f"Upstream LLM error: {exc}")
@@ -847,15 +1199,12 @@ async def ask(
             audit_log({
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "requested_model": LLM_MODEL,
-                "actual_model": (
-                    completion.model
-                    if completion is not None
-                    else "failed_at_llm_call"
-                ),
+                "actual_model": LLM_MODEL,
                 "prompt_redacted": redact(req.question),
                 "response_redacted": "",
                 "citations": rag_context,
                 "latency_ms": latency_ms,
+                "total_latency_ms": round((time.perf_counter() - request_t0) * 1000),
                 "prompt_version": PROMPT_VERSION
             }, session_id=x_session_id)
             return AskResponse(
@@ -870,14 +1219,11 @@ async def ask(
         audit_log({
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "requested_model": LLM_MODEL,
-            "actual_model": (
-                completion.model
-                if completion is not None
-                else "failed_at_llm_call"
-            ),
+            "actual_model": LLM_MODEL,
             "prompt_redacted": redact(req.question),
             "response_redacted": redact(out["text"]),
             "latency_ms": latency_ms,
+            "total_latency_ms": round((time.perf_counter() - request_t0) * 1000),
             "prompt_version": PROMPT_VERSION
         }, session_id=x_session_id)
         confidence = "medium"
@@ -908,54 +1254,40 @@ async def ask(
         # The langfuse.openai wrapper records this generation (model, latency,
         # token usage, prompt, completion) inside the current trace automatically.
         t0 = time.perf_counter()
-        completion = None
         try:
             # messages, rag_context = build_messages(req.question, request_type="rag")
             messages, rag_context = build_messages(req.question, request_type=verdict["type"], history=history)
-            print("messages")
-            print(messages)
-            completion = client.chat.completions.create(
+            content = await call_llm(
+                messages,
+                max_tokens=ANSWER_MAX_TOKENS,
                 model=LLM_MODEL,
-                messages=messages,
-                max_tokens=1024,
             )
-            print("completion")
-            print(completion)
-            content = (completion.choices[0].message.content or "").strip()
-            print("1")
-            # output = json.loads(content)
-            # decision = output["decision"]
-            print("2")
-            # answer = output["answer"]
-            answer = content
-            print("4")
+            parsed_answer, decision, cited_ids = parse_model_output(content)
+            answer = parsed_answer if isinstance(parsed_answer, str) else content
+            citation_text = " ".join(f"[{cid}]" for cid in cited_ids)
+            citations = extract_citations(citation_text, rag_context)
             # 5. Save the user's message
             save_message(
                 x_session_id,
                 "user",
                 req.question,
             )
-            print("5")
             # 6. Save the assistant's response
             save_message(
                 x_session_id,
                 "assistant",
                 answer,
             )
-            print("6")
         except Exception as exc:
             latency_ms = round((time.perf_counter() - t0) * 1000)
             audit_log({
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "requested_model": LLM_MODEL,
-                "actual_model": (
-                    completion.model
-                    if completion is not None
-                    else "failed_at_llm_call"
-                ),
+                "actual_model": LLM_MODEL,
                 "prompt_redacted": redact(req.question),
                 "response_redacted": str(exc),
                 "latency_ms": latency_ms,
+                "total_latency_ms": round((time.perf_counter() - request_t0) * 1000),
                 "prompt_version": PROMPT_VERSION
             }, session_id=x_session_id)
             raise HTTPException(status_code=502, detail=f"Upstream LLM error: {exc}")
@@ -969,20 +1301,17 @@ async def ask(
             audit_log({
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "requested_model": LLM_MODEL,
-                "actual_model": (
-                    completion.model
-                    if completion is not None
-                    else "failed_at_llm_call"
-                ),
+                "actual_model": LLM_MODEL,
                 "prompt_redacted": redact(req.question),
                 "response_redacted": "",
                 "citations": rag_context,
                 "latency_ms": latency_ms,
+                "total_latency_ms": round((time.perf_counter() - request_t0) * 1000),
                 "prompt_version": PROMPT_VERSION
             }, session_id=x_session_id)
             return AskResponse(
                 answer="I could not generate an answer. Please contact the helpline.",
-                # decision="NEEDS_INFORMATION",
+                decision="NEEDS_INFORMATION",
                 citations=[],
                 confidence="low",
                 refused=False,
@@ -993,22 +1322,19 @@ async def ask(
         audit_log({
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "requested_model": LLM_MODEL,
-            "actual_model": (
-                completion.model
-                if completion is not None
-                else "failed_at_llm_call"
-            ),
+            "actual_model": LLM_MODEL,
             "prompt_redacted": redact(req.question),
             "response_redacted": redact(out["text"]),
             "citations": rag_context,
             "latency_ms": latency_ms,
+            "total_latency_ms": round((time.perf_counter() - request_t0) * 1000),
             "prompt_version": PROMPT_VERSION
         }, session_id=x_session_id)
         if idempotency_key:
             response = AskResponse(
                 answer=out["text"],
-                # decision=decision,
-                citations=rag_context,
+                decision=decision,
+                citations=citations,
                 confidence="high" if out["refused"] else "medium",
                 refused=out["refused"],
                 reason=out["reason"],
@@ -1019,8 +1345,8 @@ async def ask(
         confidence = "medium"
         return AskResponse(
             answer=out["text"],
-            # decision=decision,
-            citations=rag_context,
+            decision=decision,
+            citations=citations,
             confidence="high" if out["refused"] else confidence,
             refused=out["refused"],
             reason=out["reason"],
@@ -1028,8 +1354,8 @@ async def ask(
         )
 
 REQUESTS = Counter(
-    "http_requests_total",
-    "Total HTTP requests",
+    "llm_requests_total",
+    "Total number of LLM HTTP requests",
     ["endpoint", "status"],
 )
 
@@ -1037,36 +1363,51 @@ LATENCY = Histogram(
     "llm_request_latency_seconds",
     "LLM request latency in seconds",
     ["endpoint"],
-    buckets=(0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32),
+    # Optional: tune these for your expected streaming latency.
+    buckets=(
+        0.5,
+        1,
+        2,
+        5,
+        10,
+        20,
+        30,
+        60,
+        120,
+        300,
+    ),
 )
+
 
 @app.middleware("http")
 async def metrics_middleware(request: Request, call_next):
-    """Times requests and records metrics for /ask and /health."""
+    """Record metrics only for /ask/stream."""
+
+    path = request.url.path
+
+    if path != "/ask/stream":
+        return await call_next(request)
 
     t0 = time.perf_counter()
 
     try:
         response = await call_next(request)
+        status_code = response.status_code
+
     except Exception:
-        # Don't record latency here unless you also want
-        # unhandled 5xx requests represented in the histogram.
+        status_code = 500
         raise
 
-    dt = time.perf_counter() - t0
-    path = request.url.path
+    finally:
+        dt = time.perf_counter() - t0
 
-    # Keep metric label cardinality bounded.
-    if path in ("/ask", "/health"):
         REQUESTS.labels(
-            endpoint=path,
-            status=str(response.status_code),
+            endpoint="/ask/stream",
+            status=str(status_code),
         ).inc()
 
-    # Only measure actual LLM request latency.
-    if path == "/ask":
         LATENCY.labels(
-            endpoint=path,
+            endpoint="/ask/stream",
         ).observe(dt)
 
     return response

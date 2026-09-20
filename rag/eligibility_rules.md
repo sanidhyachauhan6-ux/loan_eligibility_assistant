@@ -12,7 +12,7 @@ Status: Active
 
 ****Rule ID:**** HOME-001
 
-An applicant is preliminarily eligible for a home loan when all applicable home-loan criteria relating to age, income, employment or business stability, CIBIL score, credit history, financial obligations, loan amount, tenure, and property requirements are satisfied.
+An applicant is preliminarily eligible for a home loan when all applicable home-loan eligibility criteria relating to age, income, employment or business stability, CIBIL score, credit history, financial obligations, loan amount, tenure, and property requirements are satisfied.
 
 **### 1.1 Age and Working Years**
 
@@ -23,8 +23,8 @@ An applicant is preliminarily eligible for a home loan when all applicable home-
 * Maximum age at loan maturity: 70 years.
 * Maximum loan tenure: 30 years.
 * For salaried applicants, the proposed loan tenure should generally not extend beyond the applicable retirement age unless permitted by the policy.
-* For self-employed applicants, remaining working years and business continuity should be considered.
-* Current age, retirement age, and remaining working years must be established before eligibility can be determined.
+* For self-employed applicants, remaining working years and business continuity should support the requested tenure.
+* Applicants outside the applicable age limits are not preliminarily eligible.
 
 **### 1.2 Income**
 
@@ -32,8 +32,8 @@ An applicant is preliminarily eligible for a home loan when all applicable home-
 
 * Minimum salary for salaried applicants: ₹10,000 per month.
 * Minimum business income for self-employed applicants: ₹2 lakh per annum.
-* Income must be stable and demonstrable through acceptable documentation.
-* Salary, business income, professional income, and other policy-approved income sources may be considered.
+* Income must be stable and verifiable.
+* Income must be sufficient to support the proposed repayment obligations.
 * Co-applicant income may be considered where permitted.
 
 **### 1.3 Employment and Business Stability**
@@ -42,53 +42,34 @@ An applicant is preliminarily eligible for a home loan when all applicable home-
 
 * Salaried applicants must have at least 12 months of continuous employment.
 * Self-employed applicants must have at least 24 months of continuous business or professional activity.
-* Applicants with less than the required employment or business history are not preliminarily eligible unless an applicable exception is explicitly permitted.
+* Applicants who do not meet the applicable employment or business vintage requirement are not preliminarily eligible unless an applicable exception is explicitly permitted.
 
 **### 1.4 CIBIL Score and Credit History**
 
 ****Rule ID:**** HOME-CREDIT-001
 
 * Minimum CIBIL score: **700**.
-* CIBIL score of 750 or above is considered a strong credit profile.
-* The applicant must not have an unresolved active loan default.
+* No unresolved active loan default is permitted.
 * Current overdue amounts must not exceed ₹10,000.
-* The applicant must not have an active written-off loan or unresolved settlement that violates the applicable credit policy.
+* The applicant must not have an active written-off loan or prohibited unresolved settlement.
 * Credit history must demonstrate satisfactory repayment behavior.
+* A CIBIL score below 700 does not satisfy the preliminary home-loan eligibility requirement.
 
-A CIBIL score below 700 does not satisfy the preliminary home-loan eligibility requirement.
-
-**### 1.5 Fixed Monthly Financial Obligations**
-
-****Rule ID:**** HOME-OBLIGATION-001
-
-The applicant's total fixed monthly debt obligations, including the proposed home-loan EMI, must not exceed **50% of verified monthly gross income**.
-
-Existing obligations may include:
-
-* Home-loan EMIs.
-* Personal-loan EMIs.
-* Auto-loan EMIs.
-* Education-loan EMIs.
-* Business-loan repayments.
-* Credit-card obligations.
-* Other recurring debt obligations recognized by the policy.
-
-Applicants exceeding the 50% obligation limit are not preliminarily eligible.
-
-**### 1.6 Loan Amount and Tenure**
+**### 1.5 Loan Amount and Tenure**
 
 ****Rule ID:**** HOME-LOAN-001
 
 * Maximum loan tenure: 30 years.
 * Maximum loan-to-value ratio: 90% for eligible properties, subject to applicable loan amount limits.
-* Applicant must contribute the remaining required margin/down payment.
+* Applicant must contribute the required margin/down payment.
 * Requested loan amount must be supported by income, repayment capacity, and property value.
+* Requested loan tenure must comply with applicable policy limits.
 
-**### 1.7 Property Eligibility**
+**### 1.6 Property Eligibility**
 
 ****Rule ID:**** HOME-PROPERTY-001
 
-The property must satisfy the applicable lender's property requirements.
+The property must satisfy the applicable lender property requirements.
 
 The assessment should consider:
 
@@ -101,48 +82,24 @@ The assessment should consider:
 * Required approvals.
 * Loan-to-value requirements.
 
-Final property approval remains subject to legal and technical verification.
+Failure to satisfy a mandatory property requirement means the applicant is not preliminarily eligible.
 
-**### 1.8 Documents Required**
+**### 1.7 Documents Required**
 
 ****Rule ID:**** HOME-DOC-001
 
-The lender may ask for the following documents during the home-loan application and verification process:
+The lender may request documents for identity, address, income, employment, business, credit, and property verification.
 
-**Identity and Address**
+Documents may include:
 
 * PAN card.
 * Aadhaar card or other accepted identity proof.
 * Address proof.
-* Passport-size photographs.
-
-**Salaried Applicants**
-
-* Latest salary slips, generally for the previous 3 months.
-* Salary-account bank statements, generally for the previous 6 months.
-* Form 16, generally for the previous 1–2 financial years.
-* Employment or appointment letter may be requested.
-
-**Self-Employed Applicants**
-
-* Income Tax Returns (ITRs), generally for the previous 2–3 financial years.
-* Profit and loss statements.
-* Balance sheets.
-* Business bank statements.
-* GST returns, where applicable.
-* Business registration or proof of business continuity.
-
-**Property Documents**
-
-* Sale agreement or agreement to sell.
-* Property title documents.
-* Previous sale deeds, where applicable.
-* Approved building plan.
-* Property tax receipts, where applicable.
-* Encumbrance or related property documents, where applicable.
-* Builder or project documents for applicable properties.
-
-The lender may request additional documents for income verification, property verification, legal verification, or underwriting.
+* Salary slips and bank statements.
+* Form 16 or ITRs, where applicable.
+* Employment or business documents, where applicable.
+* Property title and sale documents.
+* Property valuation and approval documents.
 
 ---
 
@@ -150,7 +107,7 @@ The lender may request additional documents for income verification, property ve
 
 ****Rule ID:**** PERSONAL-001
 
-An applicant is preliminarily eligible for a personal loan when all applicable personal-loan criteria relating to age, income, employment or business stability, CIBIL score, credit history, financial obligations, and requested loan amount and tenure are satisfied.
+An applicant is preliminarily eligible for a personal loan when all applicable personal-loan eligibility criteria relating to age, income, employment or business stability, CIBIL score, credit history, financial obligations, requested loan amount, and tenure are satisfied.
 
 **### 2.1 Age**
 
@@ -159,8 +116,8 @@ An applicant is preliminarily eligible for a personal loan when all applicable p
 * Minimum age: 21 years.
 * Maximum age at application: 60 years.
 * Maximum age at loan maturity: 65 years.
-
-Applicants outside these limits are not preliminarily eligible.
+* Applicants below 21 years are not preliminarily eligible.
+* Applicants above 60 years at application are not preliminarily eligible.
 
 **### 2.2 Income**
 
@@ -168,10 +125,8 @@ Applicants outside these limits are not preliminarily eligible.
 
 * Minimum monthly income for salaried applicants: ₹20,000.
 * Minimum annual business income for self-employed applicants: ₹3 lakh.
-* Minimum monthly disposable income after existing debt obligations: ₹10,000.
 * Income must be stable and verifiable.
-
-Salary, business income, professional income, and other approved income sources may be considered.
+* Income must be sufficient to support the proposed repayment.
 
 **### 2.3 Employment and Business Stability**
 
@@ -179,65 +134,42 @@ Salary, business income, professional income, and other approved income sources 
 
 * Salaried applicants must have at least 12 months of total employment history and at least 6 months with the current employer.
 * Self-employed applicants must have at least 24 months of continuous business or professional activity.
-* Applicants not meeting the applicable employment or business vintage requirement are not preliminarily eligible.
+* Applicants who do not meet the applicable employment or business vintage requirement are not preliminarily eligible.
 
 **### 2.4 CIBIL Score and Credit History**
 
 ****Rule ID:**** PERSONAL-CREDIT-001
 
 * Minimum CIBIL score: **700**.
-* CIBIL score of 750 or above is considered a strong credit profile.
 * No active loan default is permitted.
-* Current overdue debt must not exceed ₹5,000.
-* No unresolved written-off or settled account may be present where prohibited by the policy.
+* No unresolved written-off or prohibited settled account may be present.
 * The applicant must demonstrate satisfactory repayment behavior.
+* A CIBIL score below 700 does not satisfy the preliminary personal-loan eligibility requirement.
 
-**### 2.5 Fixed Monthly Financial Obligations**
-
-****Rule ID:**** PERSONAL-OBLIGATION-001
-
-Total fixed monthly debt obligations, including the proposed personal-loan EMI, must not exceed **50% of verified monthly gross income**.
-
-Applicants exceeding the 50% obligation limit are not preliminarily eligible.
-
-**### 2.6 Loan Amount and Tenure**
+**### 2.5 Loan Amount and Tenure**
 
 ****Rule ID:**** PERSONAL-LOAN-001
 
 * Minimum loan amount: ₹50,000.
 * Maximum loan amount: ₹25 lakh.
 * Maximum loan tenure: 5 years.
-* The requested amount must be supported by verified income and repayment capacity.
+* Requested loan amount must be supported by verified income and repayment capacity.
+* Requested loan tenure must comply with applicable policy limits.
 
-**### 2.7 Documents Required**
+**### 2.6 Documents Required**
 
 ****Rule ID:**** PERSONAL-DOC-001
 
-The lender may ask for:
+The lender may request documents for identity, address, income, employment, business, and credit verification.
 
-**Identity and Address**
+Documents may include:
 
 * PAN card.
 * Aadhaar card or other accepted identity proof.
 * Address proof.
-* Passport-size photograph.
-
-**Salaried Applicants**
-
-* Latest 3 months' salary slips.
-* Latest 3–6 months' salary-account bank statements.
-* Form 16 or income-tax documentation, where required.
-* Employment proof or employee ID, where applicable.
-
-**Self-Employed Applicants**
-
-* ITRs, generally for the previous 2–3 financial years.
-* Business bank statements.
-* GST registration or GST returns, where applicable.
-* Business registration documents.
-* Profit and loss statements or other income documents, where required.
-
-The lender may request additional documents for income, employment, identity, address, or credit verification.
+* Salary slips and bank statements.
+* Form 16 or ITRs, where applicable.
+* Employment or business documents, where applicable.
 
 ---
 
@@ -254,8 +186,8 @@ An applicant is preliminarily eligible for an auto or vehicle loan when applicab
 * Minimum age: 21 years.
 * Maximum age at application: 65 years.
 * Maximum age at loan maturity: 70 years.
-
-The applicant must have sufficient remaining working or income-generating years to support the requested tenure.
+* Applicant must have sufficient remaining working or income-generating years to support the requested tenure.
+* Applicants outside the applicable age limits are not preliminarily eligible.
 
 **### 3.2 Income**
 
@@ -263,7 +195,8 @@ The applicant must have sufficient remaining working or income-generating years 
 
 * Minimum monthly salary: ₹15,000.
 * Minimum annual business income: ₹2.5 lakh.
-* Income must be sufficient to support existing obligations and the proposed vehicle-loan EMI.
+* Income must be sufficient to support the proposed vehicle-loan EMI.
+* Income must be verifiable.
 
 **### 3.3 Employment and Business Stability**
 
@@ -272,6 +205,7 @@ The applicant must have sufficient remaining working or income-generating years 
 * Salaried applicants must have at least 12 months of employment history.
 * Self-employed applicants must have at least 24 months of business or professional activity.
 * Employment or business income must be verifiable.
+* Applicants who do not meet the applicable requirement are not preliminarily eligible.
 
 **### 3.4 CIBIL Score and Credit History**
 
@@ -279,16 +213,10 @@ The applicant must have sufficient remaining working or income-generating years 
 
 * Minimum CIBIL score: **680**.
 * No unresolved active default is permitted.
-* Current overdue debt must not exceed ₹10,000.
 * Satisfactory repayment history is required.
+* A CIBIL score below 680 does not satisfy the preliminary vehicle-loan eligibility requirement.
 
-**### 3.5 Fixed Monthly Financial Obligations**
-
-****Rule ID:**** AUTO-OBLIGATION-001
-
-Total fixed monthly debt obligations, including the proposed vehicle-loan EMI, must not exceed **50% of verified monthly gross income**.
-
-**### 3.6 Vehicle and Financing Requirements**
+**### 3.5 Vehicle and Financing Requirements**
 
 ****Rule ID:**** AUTO-VEHICLE-001
 
@@ -297,42 +225,23 @@ Total fixed monthly debt obligations, including the proposed vehicle-loan EMI, m
 * Maximum tenure for new vehicles: 7 years.
 * Maximum tenure for used vehicles: 5 years.
 * Used vehicles must not exceed 10 years of age at the end of the loan tenure.
+* The vehicle must satisfy applicable lender and registration requirements.
 
-The vehicle must satisfy applicable lender and registration requirements.
-
-**### 3.7 Documents Required**
+**### 3.6 Documents Required**
 
 ****Rule ID:**** AUTO-DOC-001
 
-The lender may ask for:
+The lender may request documents for identity, address, income, employment, business, credit, and vehicle verification.
 
-**Identity and Address**
+Documents may include:
 
 * PAN card.
 * Aadhaar card or other accepted identity proof.
 * Address proof.
-* Passport-size photographs.
-
-**Income and Employment**
-
-* Latest 3 months' salary slips.
-* Latest 3–6 months' bank statements.
-* Form 16 or ITR, where applicable.
-* Employment proof, where applicable.
-
-**Self-Employed Applicants**
-
-* ITRs for the previous 2–3 financial years.
-* Business bank statements.
-* GST or business registration documents, where applicable.
-* Financial statements, where required.
-
-**Vehicle Documents**
-
+* Salary slips and bank statements.
+* Form 16 or ITRs, where applicable.
 * Vehicle quotation or proforma invoice.
-* Registration-related documents.
-* Insurance documents, where applicable.
-* Used-vehicle valuation or ownership documents, where applicable.
+* Registration and insurance documents, where applicable.
 
 ---
 
@@ -360,10 +269,11 @@ The student must:
 
 * Have confirmed admission to an eligible institution.
 * Be enrolled in an eligible undergraduate, postgraduate, professional, vocational, or other approved course.
-* Provide acceptable admission and academic documentation.
-* Meet the minimum academic requirements specified for the applicable course.
+* Provide acceptable admission and academic information.
+* Meet applicable academic requirements.
+* The institution and course must satisfy applicable lender requirements.
 
-For this policy, the institution and course must be recognized or approved under applicable lender requirements.
+Failure to meet an applicable admission, institution, course, or academic requirement means the applicant is not preliminarily eligible.
 
 **### 4.3 Income and Co-Applicant Repayment Capacity**
 
@@ -374,7 +284,7 @@ Where a co-applicant is required:
 * Minimum monthly salary: ₹20,000.
 * Minimum annual business income: ₹3 lakh.
 * Co-applicant must demonstrate sufficient repayment capacity.
-* Existing financial obligations must be considered.
+* Income must be stable and verifiable.
 
 Student income is not required where the student does not have independent repayment capacity.
 
@@ -386,65 +296,24 @@ For the applicable borrower or co-applicant:
 
 * Minimum CIBIL score: **650**.
 * No unresolved active default is permitted.
-* Current overdue debt must not exceed ₹10,000.
 * Satisfactory repayment history is required.
+* A CIBIL score below 650 does not satisfy the preliminary education-loan eligibility requirement.
 
-**### 4.5 Fixed Monthly Financial Obligations**
-
-****Rule ID:**** EDUCATION-OBLIGATION-001
-
-For the repayment-supporting co-applicant, total fixed monthly debt obligations including the proposed education-loan repayment must not exceed **50% of verified monthly gross income**.
-
-**### 4.6 Loan Amount and Tenure**
+**### 4.5 Loan Amount and Tenure**
 
 ****Rule ID:**** EDUCATION-LOAN-001
 
 * Maximum loan amount for domestic education: ₹20 lakh.
 * Maximum loan amount for eligible overseas education: ₹40 lakh.
 * Maximum repayment tenure: 15 years.
-* A repayment moratorium may apply during the course period and an additional grace period, subject to policy.
 * Collateral or margin requirements may apply to higher loan amounts.
+* Requested amount must be consistent with eligible education expenses.
 
-Eligible expenses may include tuition fees, accommodation, books, equipment, travel, and other approved education expenses.
-
-**### 4.7 Documents Required**
+**### 4.6 Documents Required**
 
 ****Rule ID:**** EDUCATION-DOC-001
 
-The lender may ask for:
-
-**Student Documents**
-
-* PAN card, where applicable.
-* Aadhaar card or accepted identity proof.
-* Passport, particularly for overseas education.
-* Academic certificates and mark sheets.
-* Admission letter.
-* Course or fee structure.
-* Scholarship documentation, where applicable.
-
-**Co-Applicant Documents**
-
-* PAN card.
-* Aadhaar card or accepted identity proof.
-* Address proof.
-* Passport-size photographs.
-* Salary slips, where salaried.
-* Bank statements.
-* Form 16 or ITR, where applicable.
-
-**Self-Employed Co-Applicants**
-
-* ITRs for the previous 2–3 financial years.
-* Business bank statements.
-* GST or business registration documents, where applicable.
-* Financial statements, where required.
-
-**Additional Documents**
-
-* Estimated education expenses.
-* Collateral/property documents, where applicable.
-* Loan-related declarations or forms required by the lender.
+The lender may request documents for student identity, admission, academics, income, co-applicant, credit, and education expenses.
 
 ---
 
@@ -461,6 +330,7 @@ A business-loan applicant must satisfy applicable age, business vintage, turnove
 * Minimum age: 21 years.
 * Maximum age at application: 65 years.
 * Maximum age at loan maturity: 70 years.
+* Applicants outside the applicable age limits are not preliminarily eligible.
 
 **### 5.2 Business Vintage**
 
@@ -479,26 +349,16 @@ A business-loan applicant must satisfy applicable age, business vintage, turnove
 * Business must demonstrate sufficient cash flow to support the proposed repayment.
 * Business banking activity and financial records must support the stated income.
 
-Applicable financial documentation may include income-tax returns, bank statements, GST records, audited financial statements, or other approved records.
-
 **### 5.4 CIBIL Score and Credit History**
 
 ****Rule ID:**** BUSINESS-CREDIT-001
 
 * Minimum CIBIL score of primary borrower: **700**.
 * No unresolved active default is permitted.
-* Current overdue debt must not exceed ₹10,000.
 * Satisfactory personal and, where applicable, business credit history is required.
+* A CIBIL score below 700 does not satisfy the preliminary business-loan eligibility requirement.
 
-**### 5.5 Fixed Monthly Financial Obligations**
-
-****Rule ID:**** BUSINESS-OBLIGATION-001
-
-Total existing personal and business debt obligations, including the proposed business-loan repayment, must not exceed **50% of the borrower's verified monthly income or assessed business repayment capacity**.
-
-Where business cash flow is used for repayment assessment, the lender may assess business-level cash flow separately from personal income.
-
-**### 5.6 Loan Amount and Tenure**
+**### 5.5 Loan Amount and Tenure**
 
 ****Rule ID:**** BUSINESS-LOAN-001
 
@@ -506,54 +366,21 @@ Where business cash flow is used for repayment assessment, the lender may assess
 * Maximum loan amount: ₹50 lakh.
 * Maximum loan tenure: 7 years.
 * Requested loan amount must be supported by business cash flow, turnover, profitability, and repayment capacity.
+* Requested loan tenure must comply with applicable policy limits.
 
-**### 5.7 Business and Industry Eligibility**
+**### 5.6 Business and Industry Eligibility**
 
 ****Rule ID:**** BUSINESS-INDUSTRY-001
 
-The business must operate in an industry supported by the applicable lending policy.
+* The business must operate in an industry supported by the applicable lending policy.
+* Valid business and financial information must be available.
+* Businesses engaged in prohibited or restricted activities are not eligible under this policy.
 
-The applicant must provide valid business and financial documentation where required.
-
-Businesses engaged in prohibited or restricted activities are not eligible under this policy.
-
-**### 5.8 Documents Required**
+**### 5.7 Documents Required**
 
 ****Rule ID:**** BUSINESS-DOC-001
 
-The lender may ask for:
-
-**Identity and Address**
-
-* PAN card.
-* Aadhaar card or other accepted identity proof.
-* Address proof.
-* Passport-size photographs.
-
-**Business Documents**
-
-* Business registration certificate.
-* GST registration certificate, where applicable.
-* Shop and Establishment certificate, where applicable.
-* Partnership deed, LLP agreement, or company incorporation documents, where applicable.
-* Business licenses and permits, where applicable.
-
-**Financial Documents**
-
-* ITRs for the previous 2–3 financial years.
-* Profit and loss statements.
-* Balance sheets.
-* Business bank statements, generally for the previous 6–12 months.
-* GST returns, where applicable.
-* Audited financial statements, where applicable.
-
-**Additional Documents**
-
-* Details of existing business loans.
-* Details of existing financial obligations.
-* Business ownership documents.
-* Proof of business address.
-* Other documents required for business and repayment-capacity verification.
+The lender may request documents for identity, business registration, income, turnover, banking activity, credit, and financial verification.
 
 ---
 
@@ -571,6 +398,7 @@ An applicant is preliminarily eligible for a Loan Against Property (LAP) when ap
 * Maximum age at application: 65 years.
 * Maximum age at loan maturity: 70 years.
 * Maximum tenure: 15 years.
+* Applicants outside the applicable age limits are not preliminarily eligible.
 
 **### 6.2 Income**
 
@@ -579,6 +407,7 @@ An applicant is preliminarily eligible for a Loan Against Property (LAP) when ap
 * Minimum monthly salary: ₹25,000.
 * Minimum annual business income: ₹3 lakh.
 * Stable and verifiable income is required.
+* Income must be sufficient to support the proposed repayment obligations.
 
 **### 6.3 Employment and Business Stability**
 
@@ -586,6 +415,7 @@ An applicant is preliminarily eligible for a Loan Against Property (LAP) when ap
 
 * Salaried applicants must have at least 12 months of employment history.
 * Self-employed applicants must have at least 3 years of business or professional activity.
+* Applicants who do not meet the applicable requirement are not preliminarily eligible.
 
 **### 6.4 CIBIL Score and Credit History**
 
@@ -594,14 +424,9 @@ An applicant is preliminarily eligible for a Loan Against Property (LAP) when ap
 * Minimum CIBIL score: **700**.
 * No unresolved active default is permitted.
 * Satisfactory credit history is required.
+* A CIBIL score below 700 does not satisfy the preliminary LAP eligibility requirement.
 
-**### 6.5 Fixed Monthly Financial Obligations**
-
-****Rule ID:**** LAP-OBLIGATION-001
-
-Total fixed monthly debt obligations including the proposed LAP repayment must not exceed **50% of verified monthly gross income**, unless a product-specific exception applies.
-
-**### 6.6 Property and Loan Requirements**
+**### 6.5 Property and Loan Requirements**
 
 ****Rule ID:**** LAP-PROPERTY-001
 
@@ -609,50 +434,15 @@ Total fixed monthly debt obligations including the proposed LAP repayment must n
 * Maximum loan tenure: 15 years.
 * Property must be legally owned by the applicant or eligible owner.
 * Property must have clear and acceptable title documentation.
+* Property must satisfy applicable legal, technical, and valuation requirements.
 * Residential and eligible commercial properties may qualify subject to policy.
+* Failure to satisfy a mandatory property requirement means the applicant is not preliminarily eligible.
 
-Property valuation and legal verification are mandatory before final approval.
-
-**### 6.7 Documents Required**
+**### 6.6 Documents Required**
 
 ****Rule ID:**** LAP-DOC-001
 
-The lender may ask for:
-
-**Identity and Address**
-
-* PAN card.
-* Aadhaar card or other accepted identity proof.
-* Address proof.
-* Passport-size photographs.
-
-**Salaried Applicants**
-
-* Latest 3 months' salary slips.
-* Latest 6 months' bank statements.
-* Form 16.
-* Employment proof, where applicable.
-
-**Self-Employed Applicants**
-
-* ITRs for the previous 2–3 financial years.
-* Profit and loss statements.
-* Balance sheets.
-* Business bank statements.
-* GST returns, where applicable.
-* Business registration documents.
-
-**Property Documents**
-
-* Sale deed or title deed.
-* Previous sale deeds, where applicable.
-* Encumbrance-related documents, where applicable.
-* Property tax receipts.
-* Approved building plan.
-* Occupancy or completion certificate, where applicable.
-* Property valuation documents, where applicable.
-
-The lender may request additional property, legal, technical, income, or credit documents.
+The lender may request documents for identity, address, income, employment, business, credit, property ownership, and property valuation.
 
 ---
 
@@ -664,27 +454,27 @@ The following information should be collected before performing a loan pre-quali
 
 * Selected loan type.
 * Current age.
-* Date of birth.
-* Residency status.
 * Employment status.
 * Monthly income.
-* Annual income.
-* Business income, where applicable.
-* Business turnover, where applicable.
+* Annual income or business income, where applicable.
 * Employment tenure.
-* Business vintage.
-* Expected retirement age, where applicable.
-* Remaining working years, where applicable.
+* Business vintage, where applicable.
 * CIBIL / credit score.
 * Credit history.
-* Existing loan EMIs.
-* Fixed monthly financial obligations.
 * Requested loan amount.
 * Requested loan tenure.
-* Loan purpose.
 * Product-specific information such as property, vehicle, education, or business details.
 
 Missing or uncertain information must not be inferred as satisfying an eligibility requirement.
+
+INFO-001 is an information-collection rule only. It does not require all listed
+information to be collected before evaluating eligibility.
+
+If sufficient applicant information is already available to determine that a
+mandatory eligibility criterion is not met, that failure must be identified
+immediately, even if other information listed in this rule is missing.
+
+---
 
 **## 8. General Eligibility Assessment**
 
@@ -701,21 +491,75 @@ For every loan type, the system may assess:
 * Employment or business stability.
 * CIBIL / credit score.
 * Credit history.
-* Fixed monthly financial obligations.
 * Loan amount.
 * Loan tenure.
 * Product-specific requirements.
 * Required documentation.
 
-A confirmed failure of any mandatory criterion means the applicant does not meet preliminary eligibility.
+Decision rules:
 
-Where a required input is unavailable, the system must identify the missing information rather than assume eligibility.
+1. Identify the applicable loan type and mandatory eligibility criteria.
+
+2. Evaluate all mandatory eligibility criteria that can be evaluated using
+   applicant information already available.
+
+3. For each applicable mandatory criterion, classify it as:
+   - SATISFIED
+   - FAILED
+   - UNKNOWN/MISSING
+
+4. FAIL-FAST:
+   A confirmed failure of ANY mandatory eligibility criterion means the
+   applicant is NOT_PRE_QUALIFIED.
+
+   Do not wait for missing information to be collected before making this
+   decision.
+
+   A confirmed mandatory failure takes precedence over all missing or
+   uncertain information.
+
+5. NEEDS_INFORMATION:
+   Return NEEDS_INFORMATION only when:
+   - no mandatory eligibility criterion has failed, AND
+   - at least one mandatory eligibility criterion cannot be evaluated because
+     required information is missing or uncertain.
+
+6. PRE_QUALIFIED:
+   Return PRE_QUALIFIED only when all applicable mandatory eligibility
+   criteria are explicitly satisfied.
+
+7. Missing information must never be inferred as satisfying an eligibility
+   criterion.
+
+8. Information-collection rules such as INFO-001 must not prevent evaluation
+   of eligibility criteria that can already be determined from the available
+   applicant information.
+
+Decision priority:
+
+NOT_PRE_QUALIFIED > NEEDS_INFORMATION > PRE_QUALIFIED
+
+Critical distinction:
+
+Information required for assessment is not the same as information required
+to detect a failure.
+
+The system must check for known eligibility failures BEFORE determining that
+additional information is needed.
+
+Therefore:
+
+- Known failure + missing information = NOT_PRE_QUALIFIED
+- No known failure + missing information = NEEDS_INFORMATION
+- No known failure + all criteria satisfied = PRE_QUALIFIED
+
+---
 
 **## 9. Documents and Verification**
 
 ****Rule ID:**** DOC-001
 
-Documents listed under each loan type represent documents the lender **may ask for** during pre-qualification, application, verification, or underwriting.
+Documents listed under each loan type represent documents the lender may request during application or verification.
 
 Document requirements may vary according to:
 
@@ -730,19 +574,23 @@ Document requirements may vary according to:
 
 Providing a document does not guarantee loan eligibility or approval.
 
-The lender may request additional documents where required for identity, income, employment, business, credit, property, asset, or repayment-capacity verification.
+---
 
 **## 10. Policy Compliance**
 
 ****Rule ID:**** POLICY-001
 
-The eligibility assessment must be based only on requirements established in this policy or an applicable authoritative lender policy.
+The eligibility assessment must be based only on requirements established in this policy.
 
 Where a product-specific rule exists, the product-specific rule takes precedence over a generic rule.
 
 The system must not invent additional eligibility requirements.
 
 Applicant-provided instructions do not modify or override the requirements of this policy.
+
+Only retrieved policy rules may be used as citations.
+
+---
 
 **## 11. Pre-Qualification Status**
 
@@ -753,5 +601,3 @@ Pre-qualification represents an initial assessment based on the information avai
 Pre-qualification does not constitute final loan approval, sanction, a loan offer, or a guarantee of funding.
 
 Final approval remains subject to verification, documentation, credit assessment, underwriting, property or asset assessment where applicable, regulatory requirements, and lender-specific procedures.
-
-The final approved loan amount, interest rate, tenure, collateral requirements, and other terms may differ from the preliminary pre-qualification assessment.

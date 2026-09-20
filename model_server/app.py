@@ -9,16 +9,19 @@
 # (Session 7) — the "OpenAI protocol as lingua franca" thread from Session 1.
 import json
 import os
+import threading
 import time
 import uuid
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from transformers import AutoTokenizer, pipeline
+import torch
+from transformers import AutoTokenizer, TextIteratorStreamer, pipeline
 
-MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"
+MODEL_ID = os.environ.get("MODEL_ID", "Qwen/Qwen2.5-1.5B-Instruct")
 SERVED_MODEL = os.environ.get("SERVED_MODEL", "qwen-local")
+MODEL_DEVICE = 0 if torch.cuda.is_available() else -1
 
 app = FastAPI(title="llm-server:openai — OpenAI-compatible local model server")
 
@@ -26,7 +29,12 @@ app = FastAPI(title="llm-server:openai — OpenAI-compatible local model server"
 # separate handle so usage token counts can be computed exactly, the way a
 # real provider reports them.
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-generator = pipeline("text-generation", model=MODEL_ID, tokenizer=tokenizer)
+generator = pipeline(
+    "text-generation",
+    model=MODEL_ID,
+    tokenizer=tokenizer,
+    device=MODEL_DEVICE,
+)
 
 
 class ChatMessage(BaseModel):
@@ -77,17 +85,40 @@ def _generate(req: ChatCompletionRequest):
     return text, prompt_tokens, completion_tokens
 
 
-def _sse_stream(text: str, comp_id: str, created: int, model: str):
-    """Stream the (already generated) text out as OpenAI chat.completion.chunk
-    SSE events, word by word.
+def _stream_generate(req: ChatCompletionRequest):
+    prompt = tokenizer.apply_chat_template(
+        [m.model_dump() for m in req.messages],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    streamer = TextIteratorStreamer(
+        tokenizer,
+        skip_prompt=True,
+        skip_special_tokens=True,
+    )
 
-    NOTE — teaching simplification: we generate the FULL text first, then
-    stream it out in chunks. On CPU with a 0.5B model this is simple and
-    reliable. A production inference server (vLLM, Session 1) streams true
-    token-by-token WHILE the model generates, which is where the
-    time-to-first-token advantage really comes from. The wire format below is
-    identical either way — that is the point of the protocol.
-    """
+    generation_kwargs = {
+        "max_new_tokens": req.max_tokens,
+        "return_full_text": False,
+        "streamer": streamer,
+        "do_sample": req.temperature > 0,
+    }
+    if req.temperature > 0:
+        generation_kwargs["temperature"] = max(req.temperature, 1e-3)
+        generation_kwargs["top_p"] = 0.8
+        generation_kwargs["top_k"] = 20
+
+    generation_thread = threading.Thread(
+        target=generator,
+        kwargs={"text_inputs": prompt, **generation_kwargs},
+        daemon=True,
+    )
+    generation_thread.start()
+    yield from streamer
+
+
+def _sse_stream(chunks, comp_id: str, created: int, model: str):
+    """Stream generated text as OpenAI-compatible SSE chunks."""
     def chunk(delta: dict, finish_reason=None) -> str:
         payload = {
             "id": comp_id,
@@ -101,30 +132,29 @@ def _sse_stream(text: str, comp_id: str, created: int, model: str):
 
     # First chunk carries the assistant role, exactly as OpenAI's API does.
     yield chunk({"role": "assistant", "content": ""})
-    words = text.split(" ")
-    for i, word in enumerate(words):
-        piece = word + (" " if i < len(words) - 1 else "")
-        yield chunk({"content": piece})
-        time.sleep(0.02)  # pacing so streaming is visible in curl / the UI
+    for piece in chunks:
+        if piece:
+            yield chunk({"content": piece})
     yield chunk({}, finish_reason="stop")
     yield "data: [DONE]\n\n"  # the OpenAI stream-termination sentinel
 
 
 @app.post("/v1/chat/completions")
 def chat_completions(req: ChatCompletionRequest):
-    text, prompt_tokens, completion_tokens = _generate(req)
     comp_id = "chatcmpl-" + uuid.uuid4().hex[:24]
     created = int(time.time())
 
     if req.stream:
         return StreamingResponse(
-            _sse_stream(text, comp_id, created, req.model),
+            _sse_stream(_stream_generate(req), comp_id, created, req.model),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",     # SSE must never be cached
                 "X-Accel-Buffering": "no",       # tell reverse proxies not to buffer
             },
         )
+
+    text, prompt_tokens, completion_tokens = _generate(req)
 
     # Non-streaming: the classic OpenAI chat.completion response shape.
     return {

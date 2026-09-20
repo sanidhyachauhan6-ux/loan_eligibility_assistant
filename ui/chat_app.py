@@ -1,4 +1,5 @@
 import os
+import json
 import time
 import uuid
 import requests
@@ -129,6 +130,38 @@ def ask_api(prompt):
         return None
 
 
+def stream_api(prompt):
+    """Yield SSE events from the streaming API endpoint."""
+    try:
+        idempotency_key = str(uuid.uuid4())
+        session_id = get_session_id(st.session_state)
+
+        with requests.post(
+            f"{API_URL}/ask/stream",
+            headers={
+                "Accept": "text/event-stream",
+                "X-API-Key": API_KEY,
+                "Idempotency-Key": idempotency_key,
+                "X-Session-Id": session_id,
+            },
+            json={"question": prompt},
+            timeout=180,
+            stream=True,
+        ) as response:
+            response.raise_for_status()
+            for line in response.iter_lines(decode_unicode=True):
+                if not line or not line.startswith("data:"):
+                    continue
+                try:
+                    yield json.loads(line[5:].strip())
+                except json.JSONDecodeError:
+                    continue
+
+    except requests.exceptions.RequestException as exc:
+        st.error(f"Could not stream a response from LoanAssist: {exc}")
+        yield {"type": "error"}
+
+
 # ---------------------------------------------------------------------------
 # Decision display
 # ---------------------------------------------------------------------------
@@ -166,20 +199,17 @@ def display_citations(citations):
 
     with st.expander("📚 View policy sources"):
         for i, citation in enumerate(citations, start=1):
-            doc = citation.get(
-                "doc",
-                "Policy document",
-            )
+            rule_id = citation.get("rule_id")
 
             text = citation.get(
                 "text",
                 "",
             )
 
-            st.markdown(f"**{i}. {doc}**")
+            st.markdown(f"**{i}. {rule_id}**")
 
             if text:
-                st.caption(text)
+                st.caption(text.replace("#", r"\#"))
 
 
 # ---------------------------------------------------------------------------
@@ -282,94 +312,83 @@ if prompt:
 
         start_time = time.perf_counter()
 
-        with st.spinner(
-            "LoanAssist is preparing your response..."
-        ):
-            result = ask_api(prompt)
+        result = None
+        answer = ""
+        decision = ""
+        citations = []
+        answer_placeholder = st.empty()
 
-        elapsed = time.perf_counter() - start_time
+        for event in stream_api(prompt):
 
-        if result:
+            event_type = event.get("type")
 
-            answer = result.get(
-                "answer",
-                "",
+            # -------------------------------------------------------
+            # Streaming answer
+            # -------------------------------------------------------
+            if event_type == "delta":
+                answer += event.get("content", "")
+
+                # Update the SAME placeholder
+                answer_placeholder.markdown(answer)
+
+            # -------------------------------------------------------
+            # Final structured response
+            # -------------------------------------------------------
+            elif event_type == "final":
+                result = event
+
+                # Expected structure:
+                #
+                # {
+                #     "type": "final",
+                #     "answer": "...",
+                #     "decision": {...},
+                #     "citations": [...]
+                # }
+
+                final_answer = event.get("answer", "")
+                decision = event.get("decision")
+                citations = event.get("citations", [])
+
+                # Only update the placeholder if the final answer
+                # is actually different from what was streamed.
+                if final_answer and final_answer != answer:
+                    answer = final_answer
+                    answer_placeholder.markdown(answer)
+
+            # -------------------------------------------------------
+            # Error
+            # -------------------------------------------------------
+            elif event_type == "error":
+                st.error(event.get("message", "An error occurred."))
+                break
+
+        # -----------------------------------------------------------
+        # Everything below happens ONCE, after streaming is complete
+        # -----------------------------------------------------------
+
+        response_time = time.perf_counter() - start_time
+        
+        if not answer:
+
+            answer = (
+                "Sorry, I couldn't generate a response. "
+                "Please try again."
             )
 
-            decision = result.get(
-                "decision",
-                None,
-            )
+            answer_placeholder.warning(answer)
+        
+        # Eligibility decision
+        if decision:
+            display_decision(decision)
 
-            citations = result.get(
-                "citations",
-                [],
-            )
-
-            refused = result.get(
-                "refused",
-                False,
-            )
-
-            reason = result.get(
-                "reason",
-                None,
-            )
-
-            # -------------------------------------------------------
-            # Answer
-            # -------------------------------------------------------
-
-            if answer:
-                st.markdown(answer)
-            else:
-                st.warning(
-                    "LoanAssist returned no answer."
-                )
-
-            # -------------------------------------------------------
-            # Eligibility decision
-            #
-            # General conversation should have decision=None.
-            # Therefore no eligibility badge is shown for:
-            #
-            # "What are you?"
-            # "Hello"
-            # "What can you help me with?"
-            # etc.
-            # -------------------------------------------------------
-
-            if decision:
-                display_decision(decision)
-
-            # -------------------------------------------------------
-            # Refusal
-            # -------------------------------------------------------
-
-            if refused:
-                st.warning(
-                    "Request refused."
-                )
-
-            # Don't expose internal reason to the applicant.
-            # Keep it for backend/audit logs.
-
-            # -------------------------------------------------------
-            # Citations
-            # -------------------------------------------------------
-
+        # Citations
+        if citations:
             display_citations(citations)
 
-            # -------------------------------------------------------
-            # Developer latency information
-            #
-            # Keep this while developing/testing.
-            # Remove or hide behind a debug flag in production.
-            # -------------------------------------------------------
-
-            st.caption(
-                f"Response time: {elapsed:.2f}s"
-            )
+        st.caption(
+            f"Response time: {response_time:.2f}s"
+        )
 
             # -------------------------------------------------------
             # Store structured assistant message
@@ -379,25 +398,11 @@ if prompt:
             # text. Store them separately as metadata.
             # -------------------------------------------------------
 
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "content": answer,
-                    "decision": decision,
-                    "citations": citations,
-                }
-            )
-
-        else:
-
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "content": (
-                        "Sorry, I couldn't generate a response. "
-                        "Please try again."
-                    ),
-                    "decision": None,
-                    "citations": [],
-                }
-            )
+        st.session_state.messages.append(
+            {
+                "role": "assistant",
+                "content": answer,
+                "decision": decision,
+                "citations": citations,
+            }
+        )

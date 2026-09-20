@@ -17,7 +17,7 @@ Refusals return {answer: REFUSAL, refused: true, reason} — never a 500.
 """
 
 import logging
-
+import re
 from redact import find_pii, redact
 
 logger = logging.getLogger("loanassist.guardrails")
@@ -330,7 +330,202 @@ def classify_intent(
 
     return "GENERAL"
 
-def check_input(text: str, client, history, model: str) -> dict:
+LOAN_TYPES = r"""
+    home\s+loan |
+    personal\s+loan |
+    auto\s+loan |
+    vehicle\s+loan |
+    education\s+loan |
+    business\s+loan |
+    loan\s+against\s+property |
+    lap
+"""
+
+
+def classify_intent_fast(text: str, history: list | None = None) -> str:
+    """
+    Fast binary intent router.
+
+    ELIGIBILITY:
+        Explicit eligibility questions OR applicant information in a
+        loan/eligibility context.
+
+    GENERAL:
+        Everything else.
+    """
+    t = text.lower().strip()
+
+    if _explicit_eligibility_request(t):
+        return "ELIGIBILITY"
+
+    if _applicant_info_in_loan_context(t, history):
+        return "ELIGIBILITY"
+
+    return "GENERAL"
+
+
+def _explicit_eligibility_request(t: str) -> bool:
+    return bool(re.search(
+        r"""
+        \b(
+            eligible |
+            eligibility |
+            qualify |
+            qualified |
+            qualification |
+            pre[- ]?qualif(?:y|ied|ication)
+        )\b
+
+        |
+
+        \b(
+            can|could|would|will|do
+        )\s+i\s+
+        (
+            (?:be\s+)?eligible |
+            (?:be\s+)?qualified |
+            qualify |
+            get\s+(?:a|the)\s+loan
+        )\b
+
+        |
+
+        \b(
+            check|assess|evaluate|verify|determine
+        )\s+
+        (?:my\s+)?
+        (
+            eligibility |
+            qualification |
+            whether\s+i\s+qualify
+        )\b
+        """,
+        t,
+        re.X,
+    ))
+
+
+def _applicant_info_in_loan_context(
+    t: str,
+    history: list | None,
+) -> bool:
+    """
+    Detect applicant facts when they occur in a loan-related conversation.
+
+    We deliberately don't enumerate every policy field here.
+    """
+    loan_context = bool(re.search(
+        rf"\b(?:{LOAN_TYPES}|loan|borrowing|borrow)\b",
+        t,
+        re.X,
+    ))
+
+    # First-person / ownership constructions:
+    #
+    #   my age is 45
+    #   my income is 80k
+    #   I earn 50k
+    #   I am self-employed
+    #   I have a CIBIL of 750
+    #   I work at ...
+    #   I have been employed for 3 years
+    #
+    applicant_statement = bool(re.search(
+        r"""
+        \b(
+            my\s+\w+(?:\s+\w+){0,4}\s+(?:is|are|was|were|of)\b |
+            i\s+(?:am|was|earn|make|have|own|owe|pay|work|live)\b |
+            i'm\b |
+            i've\b |
+            i\s+have\s+been\b
+        )
+        """,
+        t,
+        re.X,
+    ))
+
+    # Common structured input:
+    #
+    # age=45
+    # income=80000
+    # cibil=750
+    # employment=self-employed
+    structured_input = bool(
+        re.search(r"\b[a-z][a-z0-9 _/-]{1,30}\s*=\s*[^=,]+", t)
+    )
+
+    # A bare number isn't enough by itself, but these are strong
+    # applicant/profile signals when used in a loan conversation.
+    profile_signal = bool(re.search(
+        r"""
+        \b(
+            age |
+            income |
+            salary |
+            earnings |
+            cibil |
+            credit\s+score |
+            credit\s+history |
+            employment |
+            employed |
+            self[- ]employed |
+            business\s+(?:vintage|income|turnover) |
+            tenure |
+            debt |
+            emi |
+            obligations |
+            default |
+            overdue |
+            loan\s+amount |
+            loan\s+tenure |
+            down\s+payment |
+            margin |
+            property |
+            vehicle |
+            car |
+            admission |
+            course |
+            institution |
+            co[- ]applicant |
+            guarantor
+        )\b
+        """,
+        t,
+        re.X,
+    ))
+
+    if loan_context and (applicant_statement or structured_input or profile_signal):
+        return True
+
+    # If history establishes a loan conversation, a follow-up like:
+    #
+    #   "I'm 45"
+    #   "750"
+    #   "self-employed"
+    #
+    # should still be treated as eligibility-related.
+    if history and _history_has_loan_context(history):
+        return applicant_statement or structured_input or profile_signal
+
+    return False
+
+
+def _history_has_loan_context(history: list) -> bool:
+    text = " ".join(
+        item if isinstance(item, str)
+        else str(item.get("content", ""))
+        if isinstance(item, dict)
+        else str(item)
+        for item in history[-5:]
+    ).lower()
+
+    return bool(re.search(
+        rf"\b(?:{LOAN_TYPES}|loan|eligibility|qualif\w*)\b",
+        text,
+        re.X,
+    ))
+
+def check_input(text: str, history) -> dict:
     lowered = text.lower()
 
     # Injection remains deterministic
@@ -351,14 +546,9 @@ def check_input(text: str, client, history, model: str) -> dict:
             redact(text),
         )
 
-    # LLM determines conversation intent
-
-    request_type = classify_intent(
-        text=text,
-        client=client,
-        model=model,
-        history=history,
-    )
+    # Keep routing deterministic. A second LLM call added a full model
+    # generation to every request before answer generation could start.
+    request_type = classify_intent_fast(text, history)
 
     return {
         "allowed": True,

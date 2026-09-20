@@ -8,13 +8,16 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "Traffic — requests per second",
+      "title": "Traffic — /ask/stream requests per second",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prom" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prom"
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(llm_requests_total[1m]))",
+          "expr": "sum(rate(llm_requests_total{endpoint=\"/ask/stream\"}[1m]))",
           "legendFormat": "req/s"
         }
       ]
@@ -22,18 +25,21 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "Latency — p95 of /ask (seconds)",
+      "title": "Latency — p95 /ask/stream (seconds)",
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prom" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prom"
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum(rate(llm_request_latency_seconds_bucket{endpoint=\"/ask\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(llm_request_latency_seconds_bucket{endpoint=\"/ask/stream\"}[5m])) by (le))",
           "legendFormat": "p95"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.50, sum(rate(llm_request_latency_seconds_bucket{endpoint=\"/ask\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(llm_request_latency_seconds_bucket{endpoint=\"/ask/stream\"}[5m])) by (le))",
           "legendFormat": "p50"
         }
       ]
@@ -41,13 +47,16 @@
     {
       "id": 3,
       "type": "timeseries",
-      "title": "Errors — % of requests returning 4xx/5xx",
+      "title": "Errors — /ask/stream 4xx/5xx %",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prom" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prom"
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * sum(rate(llm_requests_total{status=~\"4..|5..\"}[1m])) / sum(rate(llm_requests_total[1m]))",
+          "expr": "100 * sum(rate(llm_requests_total{endpoint=\"/ask/stream\",status=~\"4..|5..\"}[1m])) / sum(rate(llm_requests_total{endpoint=\"/ask/stream\"}[1m]))",
           "legendFormat": "error %"
         }
       ]

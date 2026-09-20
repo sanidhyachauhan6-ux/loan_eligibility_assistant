@@ -57,6 +57,31 @@ RULE_ID_RE = re.compile(
     re.IGNORECASE,
 )
 
+def get_product_from_title(title: str) -> str:
+    normalized = title.lower().strip()
+
+    general_sections = {
+        "general applicant information",
+        "general eligibility assessment",
+        "documents and verification",
+        "policy compliance",
+        "pre-qualification status",
+    }
+
+    if normalized in general_sections:
+        return "general"
+
+    if normalized == "auto / vehicle loan":
+        return "auto"
+
+    if normalized == "loan against property":
+        return "lap"
+
+    if normalized.endswith(" loan"):
+        return normalized[:-5].strip()
+
+    return normalized
+
 
 def split_by_clause(text: str, doc_name: str) -> list[dict]:
     chunks = []
@@ -77,6 +102,8 @@ def split_by_clause(text: str, doc_name: str) -> list[dict]:
 
         section = section_match.group("section")
         title = section_match.group("title").strip()
+
+        product = get_product_from_title(title)
 
         subsection_matches = list(
             SUBSECTION_RE.finditer(section_text)
@@ -106,6 +133,7 @@ def split_by_clause(text: str, doc_name: str) -> list[dict]:
                     "doc": doc_name,
                     "section": section,
                     "title": title,
+                    "product": product,
                     "subsection": sub_match.group("section"),
                     "subsection_title": sub_match.group("title").strip(),
                     "rule_id": (
@@ -128,6 +156,7 @@ def split_by_clause(text: str, doc_name: str) -> list[dict]:
                 "doc": doc_name,
                 "section": section,
                 "title": title,
+                "product": product,
                 "subsection": None,
                 "subsection_title": None,
                 "rule_id": (
@@ -201,6 +230,11 @@ def main() -> None:
     ids = []
 
     for i, c in enumerate(all_chunks):
+        print(
+            c["rule_id"],
+            c["product"],
+            c["title"],
+        )
         if c["rule_id"]:
             chunk_id = c["rule_id"]
         else:
@@ -226,6 +260,7 @@ def main() -> None:
             "doc": c["doc"],
             "section": c["section"],
             "title": c["title"],
+            "product": c["product"],
         }
 
         if c.get("subsection") is not None:
